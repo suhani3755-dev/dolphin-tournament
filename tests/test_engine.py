@@ -3,10 +3,12 @@ import random
 from engine.bracket import apply_opening_byes, generate_matches
 from engine.scoring import ScoreError, validate_score
 from engine.seeding import (
-    DrawError,
     build_draw,
+    bye_positions,
     calculate_seed_positions,
+    canonical_seed_placement,
     generate_bracket_size,
+    max_seeds_for_entries,
 )
 
 
@@ -20,26 +22,66 @@ def test_bracket_sizes():
     assert generate_bracket_size(16) == 16
     assert generate_bracket_size(17) == 32
     assert generate_bracket_size(32) == 32
+    assert generate_bracket_size(33) == 64
+    assert generate_bracket_size(50) == 64
+    assert generate_bracket_size(64) == 64
+    assert generate_bracket_size(65) == 128
+    assert generate_bracket_size(100) == 128
+    assert generate_bracket_size(128) == 128
 
 
-def test_standard_seed_positions():
-    assert calculate_seed_positions(2) == [1, 2]
-    assert calculate_seed_positions(4) == [1, 4, 2, 3]
-    assert calculate_seed_positions(8) == [1, 8, 4, 5, 2, 7, 3, 6]
-    assert calculate_seed_positions(16) == [1, 16, 8, 9, 4, 13, 5, 12, 2, 15, 7, 10, 3, 14, 6, 11]
+def test_max_seeds_follows_bwf_bands():
+    assert max_seeds_for_entries(8) == 2
+    assert max_seeds_for_entries(15) == 2
+    assert max_seeds_for_entries(16) == 4
+    assert max_seeds_for_entries(31) == 4
+    assert max_seeds_for_entries(32) == 8
+    assert max_seeds_for_entries(63) == 8
+    assert max_seeds_for_entries(64) == 16
+    assert max_seeds_for_entries(128) == 16
+
+
+def test_bwf_canonical_seed_positions():
+    eight = canonical_seed_placement(8)
+    assert eight[1] == 1
+    assert eight[2] == 8
+    assert set(canonical_seed_placement(16)[s] for s in (3, 4)) == {5, 12}
+    assert set(canonical_seed_placement(32)[s] for s in (3, 4)) == {9, 24}
+    assert set(canonical_seed_placement(32)[s] for s in range(5, 9)) == {5, 13, 20, 28}
+    assert set(canonical_seed_placement(64)[s] for s in (3, 4)) == {17, 48}
+    assert set(canonical_seed_placement(64)[s] for s in range(5, 9)) == {9, 25, 40, 56}
+    assert set(canonical_seed_placement(64)[s] for s in range(9, 17)) == {5, 13, 21, 29, 36, 44, 52, 60}
+    assert set(canonical_seed_placement(128)[s] for s in (3, 4)) == {33, 96}
+    assert set(canonical_seed_placement(128)[s] for s in range(5, 9)) == {17, 49, 80, 112}
+    assert set(canonical_seed_placement(128)[s] for s in range(9, 17)) == {9, 25, 41, 57, 72, 88, 104, 120}
 
 
 def test_seeds_occupy_separate_quarters():
     for size in (8, 16, 32, 64, 128):
-        positions = calculate_seed_positions(size)
-        quarters = [positions.index(seed) // (size // 4) for seed in (1, 2, 3, 4)]
+        placed = canonical_seed_placement(size)
+        quarters = [(placed[seed] - 1) // (size // 4) for seed in (1, 2, 3, 4)]
         assert len(set(quarters)) == 4, size
-        half = size // 2
-        assert positions.index(1) < half
-        assert positions.index(2) >= half
+        assert placed[1] == 1
+        assert placed[2] == size
+        eighths = [(placed[seed] - 1) // (size // 8) for seed in range(1, 9)]
+        assert len(set(eighths)) == 8, size
 
 
-def test_eight_player_four_seeds_opposite_halves():
+def test_equivalent_seeds_are_drawn_by_lot_inside_legal_slots():
+    rng_a = random.Random(1)
+    rng_b = random.Random(2)
+    a = calculate_seed_positions(16, 4, rng_a)
+    b = calculate_seed_positions(16, 4, rng_b)
+    assert a[1] == 1 and a[2] == 16
+    assert set(a[s] for s in (3, 4)) == {5, 12}
+    assert set(b[s] for s in (3, 4)) == {5, 12}
+    eight = calculate_seed_positions(32, 8, random.Random(9))
+    assert eight[1] == 1 and eight[2] == 32
+    assert set(eight[s] for s in (3, 4)) == {9, 24}
+    assert set(eight[s] for s in range(5, 9)) == {5, 13, 20, 28}
+
+
+def test_eight_player_seeds_top_and_bottom():
     players = [
         {"id": 1, "name": "A", "seed": 1},
         {"id": 2, "name": "B", "seed": 2},
@@ -53,14 +95,13 @@ def test_eight_player_four_seeds_opposite_halves():
     plan = build_draw(players, random.Random(1))
     slots = plan["slots"]
     by_id = {s["player_id"]: s["index"] for s in slots}
-    assert by_id[1] == 0  # seed 1 top of bracket
-    assert by_id[2] == 4  # seed 2 opposite half
-    assert by_id[4] == 2  # seed 4
-    assert by_id[3] == 6  # seed 3
+    assert by_id[1] == 0
+    assert by_id[2] == 7
     top = {s["player_id"] for s in slots[:4]}
     bottom = {s["player_id"] for s in slots[4:]}
     assert 1 in top and 2 in bottom
-    assert 4 in top and 3 in bottom
+    q = [(by_id[i]) // 2 for i in (1, 2, 3, 4)]
+    assert len(set(q)) == 4
 
 
 def test_byes_go_to_top_seeds():
@@ -81,6 +122,120 @@ def test_byes_go_to_top_seeds():
     assert len(bye_matches) == 2
     winners = {m["winner_id"] for m in bye_matches}
     assert winners == {1, 2}
+
+
+def _players(n: int, seeds: int) -> list[dict]:
+    return [
+        {"id": i, "name": f"P{i}", "seed": i if i <= seeds else None}
+        for i in range(1, n + 1)
+    ]
+
+
+def _assert_draw_invariants(n: int, seeds: int, rng_seed: int = 0) -> dict:
+    plan = build_draw(_players(n, seeds), random.Random(rng_seed))
+    size = generate_bracket_size(n)
+    assert plan["bracket_size"] == size
+    assert plan["byes"] == size - n
+    slots = plan["slots"]
+    assert len(slots) == size
+    ids = [s["player_id"] for s in slots if s["player_id"] is not None]
+    assert len(ids) == n
+    assert len(set(ids)) == n
+    assert set(ids) == set(range(1, n + 1))
+    assert sum(1 for s in slots if s["is_bye"]) == size - n
+    assert all(not s["is_bye"] or s["player_id"] is None for s in slots)
+    by_seed = {s["seed_number"]: s for s in slots if s["seed_number"]}
+    if seeds >= 1:
+        assert by_seed[1]["index"] == 0
+        assert by_seed[1]["player_id"] == 1
+    if seeds >= 2:
+        assert by_seed[2]["index"] == size - 1
+        assert by_seed[2]["player_id"] == 2
+    if seeds >= 4:
+        qsize = size // 4
+        quarters = {by_seed[s]["index"] // qsize for s in (1, 2, 3, 4)}
+        assert quarters == {0, 1, 2, 3}
+    if seeds >= 8:
+        eighths = {by_seed[s]["index"] // (size // 8) for s in range(1, 9)}
+        assert len(eighths) == 8
+    matches = generate_matches(plan["slots"])
+    apply_opening_byes(matches)
+    assert len([m for m in matches if m["result_type"] == "bye"]) == size - n
+    return plan
+
+
+def test_generalized_draws_for_arbitrary_fields():
+    cases = [
+        (3, 2), (4, 2), (5, 2), (6, 2), (7, 2), (8, 2), (8, 4),
+        (9, 2), (10, 2), (13, 2), (15, 2), (16, 4), (17, 4),
+        (20, 4), (24, 4), (31, 4), (32, 8), (33, 8), (50, 8),
+        (63, 8), (64, 16), (65, 16), (100, 16), (128, 16),
+    ]
+    for n, seeds in cases:
+        _assert_draw_invariants(n, seeds, rng_seed=n * 10 + seeds)
+
+
+def test_official_bye_tables_small_draws():
+    assert set(bye_positions(5)) == {2, 4, 7}
+    assert set(bye_positions(6)) == {2, 7}
+    assert bye_positions(7) == [2]
+    assert set(bye_positions(9)) == {2, 4, 6, 8, 11, 13, 15}
+    assert set(bye_positions(10)) == {2, 4, 6, 11, 13, 15}
+    assert set(bye_positions(13)) == {2, 6, 15}
+    assert set(bye_positions(14)) == {2, 15}
+    assert bye_positions(15) == [2]
+    assert set(bye_positions(24)) == {2, 6, 10, 14, 19, 23, 27, 31}
+    assert set(bye_positions(30)) == {2, 31}
+    assert set(bye_positions(50)) == {2, 6, 10, 14, 18, 22, 26, 39, 43, 47, 51, 55, 59, 63}
+
+
+def test_fewer_seeds_than_maximum_are_respected():
+    plan = build_draw(_players(32, 4), random.Random(3))
+    seeded_slots = [s for s in plan["slots"] if s["seed_number"]]
+    assert {s["seed_number"] for s in seeded_slots} == {1, 2, 3, 4}
+    assert plan["slots"][0]["player_id"] == 1
+    assert plan["slots"][-1]["player_id"] == 2
+
+
+def test_unseeded_never_overwrite_seeds_or_byes():
+    plan = build_draw(_players(10, 2), random.Random(4))
+    for slot in plan["slots"]:
+        if slot["seed_number"] in {1, 2}:
+            assert slot["player_id"] == slot["seed_number"]
+            assert not slot["is_bye"]
+        if slot["is_bye"]:
+            assert slot["player_id"] is None
+
+
+def test_five_player_advancement_to_champion():
+    plan = build_draw(_players(5, 2), random.Random(5))
+    matches = generate_matches(plan["slots"])
+    apply_opening_byes(matches)
+    assert plan["byes"] == 3
+    by_num = {m["match_number"]: m for m in matches}
+
+    def play(match):
+        from engine.bracket import advance_winner
+
+        winner = match["player1_id"]
+        match["winner_id"] = winner
+        match["loser_id"] = match["player2_id"]
+        match["status"] = "completed"
+        match["result_type"] = "normal"
+        advance_winner(matches, match["match_number"], winner)
+
+    for _ in range(8):
+        ready = [
+            m
+            for m in matches
+            if m["status"] == "ready" and m["player1_id"] and m["player2_id"]
+        ]
+        if not ready:
+            break
+        for match in ready:
+            play(match)
+    final = max(matches, key=lambda m: m["round_index"])
+    assert final["winner_id"]
 
 
 def test_score_validation_badminton_defaults():

@@ -15,7 +15,7 @@ from engine.bracket import apply_opening_byes, generate_matches, opponents_confl
 from engine.round_robin import generate_round_robin
 from engine.schedule import assign_available_courts, estimate_times, normalize_hhmm
 from engine.scoring import ScoreError, validate_score
-from engine.seeding import DrawError, build_draw, generate_bracket_size
+from engine.seeding import DrawError, build_draw, generate_bracket_size, max_seeds_for_entries
 from models import Court, Draw, Match, Player, Tournament
 
 FORMATS = {
@@ -445,10 +445,11 @@ def assign_seeds_by_ranking(session: Session, t: Tournament) -> None:
     )
     if not ranked:
         raise AppError("Add ranking numbers before seeding by ranking.")
+    cap = max_seeds_for_entries(len(t.players)) if t.format != "round_robin" else len(ranked)
     for player in t.players:
         player.seed = None
     session.flush()
-    for i, player in enumerate(ranked, start=1):
+    for i, player in enumerate(ranked[:cap], start=1):
         player.seed = i
 
 
