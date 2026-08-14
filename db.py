@@ -32,9 +32,24 @@ def get_database_url() -> str:
     return normalize_url(os.environ.get("DATABASE_URL") or default_sqlite_url())
 
 
+def _log_backend(url: str) -> None:
+    if url.startswith("sqlite"):
+        if os.environ.get("RENDER"):
+            print(
+                "[dolphin] database: sqlite — Render disk is ephemeral; "
+                "set DATABASE_URL to Neon Postgres or tournament data will vanish on every deploy.",
+                flush=True,
+            )
+        else:
+            print("[dolphin] database: sqlite (data/tournament.db)", flush=True)
+    else:
+        print("[dolphin] database: postgres", flush=True)
+
+
 def init_engine(url: str | None = None) -> Engine:
     global ENGINE, SessionLocal
     url = normalize_url(url or get_database_url())
+    _log_backend(url)
     kwargs: dict = {"future": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
@@ -55,7 +70,7 @@ def init_engine(url: str | None = None) -> Engine:
 
 
 def migrate_schema(engine: Engine) -> None:
-    """Add new columns to existing databases without wiping data."""
+    """Add new columns to existing databases. Additive only: never drop tables or columns."""
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)

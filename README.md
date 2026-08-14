@@ -24,24 +24,18 @@ Data is stored in `data/tournament.db`.
 python3 -m pytest -q
 ```
 
-## Host for free on Render
+## Keep data on Render (Neon Postgres)
 
-Render’s free web service does not keep files, so SQLite would reset. Use a free **Neon** Postgres database (the hosted database), and keep SQLite only for your laptop.
+Render’s free web disk is wiped on every deploy and sleep. **Local stays SQLite** in `data/tournament.db`. Production must use Postgres via `DATABASE_URL`.
 
-1. Push this folder to a GitHub repository.
-2. Create a free project at [neon.tech](https://neon.tech) → copy the connection string (`postgresql://...`).
-3. On [render.com](https://render.com) → **New → Web Service** → connect the GitHub repo.
-4. Settings:
-   - **Build:** `pip install -r requirements.txt`
-   - **Start:** `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120`
-   - **Environment:**
-     - `DATABASE_URL` = your Neon URL
-     - `SECRET_KEY` = any long random string
-5. Deploy. Render gives you a `*.onrender.com` URL that works on any device.
+1. Create a free project at [console.neon.tech](https://console.neon.tech) → copy the connection string (`postgresql://...?sslmode=require`).
+2. Open the existing Render service `dolphin-tournament` → **Environment**.
+3. Add `DATABASE_URL` = that Neon string → **Save Changes** (Render redeploys).
+4. In Render logs, confirm `[dolphin] database: postgres`. After that, tournament data survives deploys.
 
-The first visit creates the tables automatically.
+If `DATABASE_URL` is missing, the app uses SQLite and the next deploy starts empty. Do not create a Render Postgres database (the free plan was discontinued).
 
-Free Render services sleep after idle time; the first load after that can take ~30 seconds.
+Live site: [https://dolphin-tournament.onrender.com](https://dolphin-tournament.onrender.com). Free Render services sleep when idle; the first load after that can take ~30 seconds.
 
 ## Defaults (badminton)
 
