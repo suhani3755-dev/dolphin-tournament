@@ -73,6 +73,16 @@
     return `<a href="/tournaments/${tid}/players/${p.id}">${esc(p.name)}</a>`;
   }
 
+  function prettyDate(raw) {
+    const m = String(raw || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return raw || "Date TBC";
+    const months = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December",
+    ];
+    return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
+  }
+
   function seedTag(p) {
     return p && p.seed ? `<span class="seed">${p.seed}</span>` : "";
   }
@@ -81,8 +91,8 @@
     const bye = match[`player${side}_is_bye`];
     const p = match[`player${side}`];
     const src = match[`player${side}_source`];
-    if (bye) return `<span class="muted">BYE</span>`;
-    if (p) return `${seedTag(p)} <span>${playerLink(p)}</span>`;
+    if (bye || src === "BYE") return `<span class="bye-label">BYE</span>`;
+    if (p) return `${seedTag(p)} <span class="player-name">${playerLink(p)}</span>`;
     return `<span class="muted">${esc(src || "TBD")}</span>`;
   }
 
@@ -91,20 +101,35 @@
     return match.scores.map((g) => `${g[0]}–${g[1]}`).join(", ");
   }
 
+  function headerStats() {
+    const tr = t();
+    if (!tr.draw) return "";
+    const players = tr.player_count ?? (tr.players || []).length;
+    const playable = (state.matches || []).filter((m) => !m.player1_is_bye && !m.player2_is_bye);
+    const byes = tr.draw.byes ?? (state.matches || []).filter((m) => m.result_type === "bye").length;
+    return `<p class="tourney-summary"><strong>${players}</strong> players · ${playable.length} matches · ${byes} byes</p>`;
+  }
+
   function header() {
     const tr = t();
-    document.getElementById("status-pill").textContent = tr.status;
-    document.getElementById("status-pill").className = `status-pill status-${tr.status}`;
+    const pill = document.getElementById("status-pill");
+    pill.textContent = tr.status === "live" ? "LIVE" : tr.status;
+    pill.className = `status-pill status-${tr.status}`;
+    const meta = [tr.sport, tr.event_type, tr.format_label || tr.format]
+      .filter(Boolean)
+      .map((s) => String(s).replace(/_/g, " "))
+      .join(" · ");
     return `
       <div class="dash-head">
         <div>
-          <p class="eyebrow">${esc(tr.sport)} · ${esc(tr.event_type)} · ${esc(tr.format_label || tr.format)}</p>
           <h1>${esc(tr.name)}</h1>
-          <p class="muted">${esc(tr.date || "Date TBC")}${tr.venue ? " · " + esc(tr.venue) : ""}</p>
+          <p class="dash-kicker">${esc(meta)}</p>
+          <p class="muted">${esc(prettyDate(tr.date))}${tr.venue ? " · " + esc(tr.venue) : ""}</p>
+          ${headerStats()}
         </div>
         <div class="actions">
           ${tr.draw && !tr.draw.locked ? `<button class="btn" data-act="lock">Lock Draw</button>` : ""}
-          ${tr.draw && tr.draw.locked && tr.status !== "completed" ? `<button class="btn btn-ghost" data-act="unlock">Unlock Draw</button>` : ""}
+          ${tr.draw && tr.draw.locked && tr.status !== "completed" ? `<button class="btn btn-compact" data-act="unlock">🔒 Unlock Draw</button>` : ""}
           ${tr.draw && tr.status !== "live" && tr.status !== "completed" ? `<button class="btn btn-primary" data-act="start">Start Tournament</button>` : ""}
         </div>
       </div>
@@ -317,7 +342,9 @@
             const ms = state.matches.filter((m) => m.round_name === name);
             return `<div class="round">
               <h3>${esc(name)}</h3>
-              ${ms.map(matchCard).join("")}
+              <div class="round-matches" style="--count:${ms.length}">
+                ${ms.map(matchCard).join("")}
+              </div>
             </div>`;
           })
           .join("")}
@@ -328,15 +355,20 @@
   function matchCard(m) {
     const w1 = m.winner_id && m.player1 && m.winner_id === m.player1.id;
     const w2 = m.winner_id && m.player2 && m.winner_id === m.player2.id;
+    const byeMatch = m.player1_is_bye || m.player2_is_bye || m.result_type === "bye";
+    const metaBits = [`M${m.match_number}`, byeMatch ? "BYE" : esc(m.status).toUpperCase()];
+    if (courtName(m)) metaBits.push(esc(courtName(m)));
     return `
-      <article class="match-card ${m.status}" data-match="${m.id}">
-        <div class="slot ${w1 ? "winner" : ""}">${slotLabel(m, 1)}</div>
-        <div class="slot ${w2 ? "winner" : ""}">${slotLabel(m, 2)}</div>
-        <div class="match-meta">
-          <span>M${m.match_number} · ${esc(m.status)}${courtName(m) ? " · " + esc(courtName(m)) : ""}</span>
-          <span>${esc(scoreLine(m) || m.scheduled_time || "")}</span>
-        </div>
-      </article>
+      <div class="match-wrap">
+        <article class="match-card ${esc(m.status)}${m.winner_id ? " has-winner" : ""}${byeMatch ? " is-bye" : ""}" data-match="${m.id}">
+          <div class="slot ${w1 ? "winner" : ""}${m.player1_is_bye ? " is-bye" : ""}">${slotLabel(m, 1)}</div>
+          <div class="slot ${w2 ? "winner" : ""}${m.player2_is_bye ? " is-bye" : ""}">${slotLabel(m, 2)}</div>
+          <div class="match-meta">
+            <span>${metaBits.join(" · ")}</span>
+            <span>${esc(scoreLine(m) || m.scheduled_time || "")}</span>
+          </div>
+        </article>
+      </div>
     `;
   }
 
