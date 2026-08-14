@@ -172,6 +172,35 @@
           </label>
         </div>
         <label class="field"><span><input type="checkbox" name="deuce_enabled" ${tr.deuce_enabled ? "checked" : ""}> Deuce / win-by rules enabled</span></label>
+        <h2 class="eyebrow" style="margin-top:8px">Courts & schedule</h2>
+        <label class="field"><span><input type="checkbox" name="auto_assign_courts" ${tr.auto_assign_courts !== false ? "checked" : ""}> Auto-assign courts (only as many matches as you have courts; next match takes a court when a winner is entered)</span></label>
+        <div class="form-grid">
+          <label>Day starts
+            <input name="day_start" type="time" value="${esc(tr.day_start || "09:00")}">
+          </label>
+          <label>Average match (minutes)
+            <input name="avg_match_minutes" type="number" min="5" max="180" value="${esc(tr.avg_match_minutes || 25)}">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>Changeover (minutes)
+            <input name="changeover_minutes" type="number" min="0" max="30" value="${esc(tr.changeover_minutes ?? 5)}">
+          </label>
+          <label>Rest after every N waves
+            <input name="break_every_waves" type="number" min="0" max="20" value="${esc(tr.break_every_waves ?? 3)}" placeholder="0 = none">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>Rest length (minutes)
+            <input name="break_minutes" type="number" min="0" max="120" value="${esc(tr.break_minutes || 15)}">
+          </label>
+          <label>Lunch starts <span class="opt">optional</span>
+            <input name="lunch_start" type="time" value="${esc(tr.lunch_start || "")}">
+          </label>
+        </div>
+        <label>Lunch length (minutes)
+          <input name="lunch_minutes" type="number" min="15" max="180" value="${esc(tr.lunch_minutes || 45)}">
+        </label>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">Save setup</button>
           <button class="btn" type="button" data-tab="players">Continue to players</button>
@@ -304,8 +333,8 @@
         <div class="slot ${w1 ? "winner" : ""}">${slotLabel(m, 1)}</div>
         <div class="slot ${w2 ? "winner" : ""}">${slotLabel(m, 2)}</div>
         <div class="match-meta">
-          <span>M${m.match_number} · ${esc(m.status)}</span>
-          <span>${esc(scoreLine(m))}</span>
+          <span>M${m.match_number} · ${esc(m.status)}${courtName(m) ? " · " + esc(courtName(m)) : ""}</span>
+          <span>${esc(scoreLine(m) || m.scheduled_time || "")}</span>
         </div>
       </article>
     `;
@@ -343,22 +372,82 @@
               return `<div class="court-chip">
                 <div class="kicker">${esc(c.name)} · ${on ? "LIVE" : next ? "UP NEXT" : "FREE"}</div>
                 <div>${on ? namesOf(on) : next ? namesOf(next) : "—"}</div>
+                ${on && on.scheduled_time ? `<div class="muted">${esc(on.scheduled_time)}</div>` : next && next.scheduled_time ? `<div class="muted">${esc(next.scheduled_time)}</div>` : ""}
               </div>`;
             })
             .join("")}
         </div>
+        ${daySchedule()}
         <div class="panel" style="margin-top:12px">
           <h2>Upcoming matches</h2>
           ${upcoming.length ? upcoming.map((m) => `
             <div class="side-match">
               <strong>Match ${m.match_number}</strong>
               <div>${namesOf(m)}</div>
-              <div class="muted">${m.court ? esc(m.court.name) : "Court TBC"} · ${esc(m.status)}</div>
+              <div class="muted">${courtName(m) ? esc(courtName(m)) : "Waiting"} · ${m.scheduled_time ? esc(m.scheduled_time) : esc(m.status)}</div>
               <button class="btn btn-primary" data-enter="${m.id}">Enter result</button>
             </div>`).join("") : `<p class="muted">No matches waiting.</p>`}
         </div>
+        ${(state.waiting || []).length ? `
+        <div class="panel" style="margin-top:12px">
+          <h2>Waiting for a court</h2>
+          ${state.waiting.slice(0, 8).map((m) => `
+            <div class="side-match">
+              <strong>Match ${m.match_number}</strong>
+              <div>${namesOf(m)}</div>
+              <div class="muted">${m.scheduled_time ? "Est. " + esc(m.scheduled_time) : "Queued"}</div>
+            </div>`).join("")}
+        </div>` : ""}
       </aside>
     `;
+  }
+
+  function daySchedule() {
+    const tr = t();
+    const matches = (state.matches || []).filter(
+      (m) => m.scheduled_time && !m.player1_is_bye && !m.player2_is_bye && m.result_type !== "bye"
+    );
+    const by = {};
+    for (const m of matches) {
+      (by[m.scheduled_time] ||= []).push(m);
+    }
+    const times = Object.keys(by).sort();
+    if (!times.length) return "";
+    const lunch = tr.lunch_start;
+    let lunchDone = false;
+    const blocks = [];
+    for (const time of times) {
+      if (lunch && !lunchDone && time >= lunch) {
+        blocks.push(
+          `<div class="wave-row break"><div class="kicker">${esc(lunch)}</div><div>Lunch · ${esc(tr.lunch_minutes || 45)} min</div></div>`
+        );
+        lunchDone = true;
+      }
+      blocks.push(`<div class="wave-row">
+        <div class="kicker">${esc(time)}</div>
+        ${by[time]
+          .map(
+            (m) =>
+              `<div>${esc(courtName(m) || "TBD")} · Match ${m.match_number} · ${namesOf(m)}</div>`
+          )
+          .join("")}
+      </div>`);
+    }
+    const rest =
+      tr.break_every_waves > 0
+        ? ` · rest ${esc(tr.break_minutes || 15)} min every ${esc(tr.break_every_waves)} waves`
+        : "";
+    return `<div class="panel" style="margin-top:12px">
+      <h2>Day schedule</h2>
+      <p class="muted">From ${esc(tr.day_start || "09:00")} · ${esc(tr.avg_match_minutes || 25)} min matches + ${esc(tr.changeover_minutes ?? 5)} min changeover${rest}</p>
+      ${blocks.join("")}
+    </div>`;
+  }
+
+  function courtName(m) {
+    if (m.court && m.court.name) return m.court.name;
+    const found = (t().courts || []).find((c) => c.id === m.court_id);
+    return found ? found.name : "";
   }
 
   function namesOf(m) {
@@ -369,10 +458,14 @@
 
   function viewMatches() {
     return `
+      <div class="actions" style="margin-bottom:12px">
+        <button class="btn btn-primary" data-act="auto-courts">Auto-assign courts</button>
+        <span class="muted">${t().auto_assign_courts !== false ? `Only ${t().num_courts || 0} match${t().num_courts === 1 ? "" : "es"} on court at a time. Enter a winner and the next match takes that court.` : "Manual court assignment."}</span>
+      </div>
       <div class="layout">
         <div class="table-wrap">
           <table class="data">
-            <thead><tr><th>Match</th><th>Round</th><th>Players</th><th>Court</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Match</th><th>Round</th><th>Players</th><th>Court</th><th>Time</th><th>Status</th><th></th></tr></thead>
             <tbody>
               ${(state.matches || [])
                 .filter((m) => !m.player1_is_bye && !m.player2_is_bye)
@@ -387,9 +480,10 @@
                         ${(t().courts || []).map((c) => `<option value="${c.id}" ${m.court_id === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
                       </select>
                     </td>
+                    <td>${esc(m.scheduled_time || "")}</td>
                     <td>${esc(m.status)}</td>
                     <td class="actions">
-                      ${m.status === "ready" ? `<button class="btn" data-start="${m.id}">Start</button>` : ""}
+                      ${m.status === "ready" && (m.court_id || t().auto_assign_courts === false) ? `<button class="btn" data-start="${m.id}">Start</button>` : ""}
                       ${["ready", "live"].includes(m.status) && m.player1 && m.player2 ? `<button class="btn btn-primary" data-enter="${m.id}">Score</button>` : ""}
                     </td>
                   </tr>`
@@ -544,7 +638,10 @@
         const fd = new FormData(setup);
         const body = Object.fromEntries(fd.entries());
         body.deuce_enabled = setup.deuce_enabled.checked;
-        ["expected_players", "best_of", "points_per_game", "win_by", "max_score", "third_game_points", "num_courts"].forEach((k) => {
+        body.auto_assign_courts = setup.auto_assign_courts.checked;
+        if (body.day_start) body.day_start = String(body.day_start).slice(0, 5);
+        if (body.lunch_start) body.lunch_start = String(body.lunch_start).slice(0, 5);
+        ["expected_players", "best_of", "points_per_game", "win_by", "max_score", "third_game_points", "num_courts", "avg_match_minutes", "changeover_minutes", "break_every_waves", "break_minutes", "lunch_minutes", "lunch_start"].forEach((k) => {
           if (body[k] === "") body[k] = null;
         });
         try {
@@ -682,7 +779,8 @@
         const played = (state.matches || []).some((m) => m.winner_id && m.result_type !== "bye");
         if (played && !confirm("Changing the draw after matches have started may invalidate existing results.")) return;
         await api(`/api/tournaments/${tid}/draw`, { method: "POST", body: { confirm: true } });
-        toast("Draw generated");
+        toast("Draw generated — courts and times assigned");
+        setTab("matches");
       } else if (act === "lock") {
         await api(`/api/tournaments/${tid}/draw/lock`, { method: "POST", body: {} });
         toast("Draw locked");
@@ -696,6 +794,9 @@
       } else if (act === "seed-rank") {
         await api(`/api/tournaments/${tid}/seed-by-ranking`, { method: "POST", body: {} });
         toast("Seeds assigned by ranking");
+      } else if (act === "auto-courts") {
+        await api(`/api/tournaments/${tid}/courts/auto`, { method: "POST", body: {} });
+        toast("Courts and times updated");
       } else if (act === "sheet") {
         const id = document.getElementById("sheet-match").value;
         if (id) window.open(`/print/${tid}/sheet?match=${id}`, "_blank");

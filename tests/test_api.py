@@ -44,6 +44,14 @@ def test_api_eight_player_flow(tmp_path, monkeypatch):
     assert client.post(f"/api/tournaments/{tid}/draw/lock", json={}).json["ok"]
     assert client.post(f"/api/tournaments/{tid}/start", json={}).json["ok"]
 
+    started = client.get(f"/api/tournaments/{tid}").json
+    ready = [m for m in started["matches"] if m["status"] == "ready"]
+    assigned = [m for m in ready if m["court_id"]]
+    assert len(assigned) == 2
+    assert all(m["court"] and m["court"]["name"] for m in assigned)
+    assert all(m["scheduled_time"] for m in ready)
+    assert len(started["waiting"]) == 2
+
     for _ in range(8):
         payload = client.get(f"/api/tournaments/{tid}").json
         ready = [m for m in payload["matches"] if m["status"] in {"ready", "live"} and m["player1"] and m["player2"]]

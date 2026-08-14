@@ -159,3 +159,66 @@ def test_advancement_through_bracket():
     assert final["player1_id"] and final["player2_id"]
     play(final["match_number"], final["player1_id"])
     assert final["winner_id"] == final["player1_id"]
+
+
+def test_assign_courts_caps_and_skips_busy_players():
+    from engine.schedule import assign_available_courts
+
+    matches = [
+        {"id": 1, "status": "ready", "round_index": 0, "match_number": 1, "player1_id": 1, "player2_id": 2, "court_id": None},
+        {"id": 2, "status": "ready", "round_index": 0, "match_number": 2, "player1_id": 3, "player2_id": 4, "court_id": None},
+        {"id": 3, "status": "ready", "round_index": 0, "match_number": 3, "player1_id": 5, "player2_id": 6, "court_id": None},
+        {"id": 4, "status": "live", "round_index": 0, "match_number": 4, "player1_id": 7, "player2_id": 8, "court_id": 10},
+        {"id": 5, "status": "ready", "round_index": 1, "match_number": 5, "player1_id": 7, "player2_id": 9, "court_id": None},
+    ]
+    assign_available_courts(matches, [10, 11])
+    assert matches[3]["court_id"] == 10
+    assigned_ready = [m for m in matches if m["status"] == "ready" and m["court_id"]]
+    assert len(assigned_ready) == 1
+    assert assigned_ready[0]["id"] == 1
+    assert matches[4]["court_id"] is None
+
+
+def test_estimate_times_waves_and_lunch():
+    from engine.schedule import estimate_times
+
+    matches = [
+        {
+            "id": i,
+            "match_number": i,
+            "round_index": 0,
+            "status": "ready",
+            "player1_id": i * 2,
+            "player2_id": i * 2 + 1,
+            "player1_source": None,
+            "player2_source": None,
+        }
+        for i in range(1, 5)
+    ]
+    settings = {
+        "day_start": "09:00",
+        "avg_match_minutes": 20,
+        "changeover_minutes": 10,
+        "break_every_waves": 0,
+        "break_minutes": 0,
+        "lunch_start": "",
+        "lunch_minutes": 45,
+    }
+    estimate_times(matches, 2, settings)
+    assert [m["scheduled_time"] for m in matches] == ["09:00", "09:00", "09:30", "09:30"]
+
+    lunch_matches = [dict(m, scheduled_time=None) for m in matches]
+    lunch_settings = {**settings, "day_start": "11:50", "lunch_start": "12:00", "lunch_minutes": 45}
+    estimate_times(lunch_matches, 2, lunch_settings)
+    assert lunch_matches[0]["scheduled_time"] == "11:50"
+    assert lunch_matches[1]["scheduled_time"] == "11:50"
+    assert lunch_matches[2]["scheduled_time"] == "12:45"
+    assert lunch_matches[3]["scheduled_time"] == "12:45"
+
+
+def test_parse_hhmm_accepts_seconds():
+    from engine.schedule import normalize_hhmm, parse_hhmm
+
+    assert parse_hhmm("09:00:00") == 9 * 60
+    assert normalize_hhmm("09:00:00") == "09:00"
+    assert normalize_hhmm("") is None

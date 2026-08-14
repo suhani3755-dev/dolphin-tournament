@@ -135,6 +135,10 @@ def create_app() -> Flask:
     @api
     def api_get(session, tid: int):
         t = svc.load_tournament(session, tid)
+        if t.matches:
+            svc.refresh_courts_and_schedule(session, t)
+            session.flush()
+            t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t)})
 
     @app.patch("/api/tournaments/<int:tid>")
@@ -231,6 +235,15 @@ def create_app() -> Flask:
     def api_start(session, tid: int):
         t = svc.load_tournament(session, tid)
         svc.start_tournament(session, t)
+        session.flush()
+        t = svc.load_tournament(session, tid)
+        return jsonify({"ok": True, **svc.full_payload(t)})
+
+    @app.post("/api/tournaments/<int:tid>/courts/auto")
+    @api
+    def api_auto_courts(session, tid: int):
+        t = svc.load_tournament(session, tid)
+        svc.refresh_courts_and_schedule(session, t, assign=True, times=True)
         session.flush()
         t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t)})

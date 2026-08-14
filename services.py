@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from engine.bracket import apply_opening_byes, generate_matches, opponents_conflict
 from engine.round_robin import generate_round_robin
+from engine.schedule import assign_available_courts, estimate_times, normalize_hhmm
 from engine.scoring import ScoreError, validate_score
 from engine.seeding import DrawError, build_draw, generate_bracket_size
 from models import Court, Draw, Match, Player, Tournament
@@ -83,6 +84,14 @@ def tournament_to_dict(t: Tournament, include_nested: bool = False) -> dict[str,
         "win_by": t.win_by,
         "max_score": t.max_score,
         "num_courts": t.num_courts,
+        "auto_assign_courts": bool(getattr(t, "auto_assign_courts", True)),
+        "day_start": getattr(t, "day_start", None) or "09:00",
+        "avg_match_minutes": getattr(t, "avg_match_minutes", None) or 25,
+        "changeover_minutes": getattr(t, "changeover_minutes", None) or 5,
+        "break_every_waves": getattr(t, "break_every_waves", None) or 0,
+        "break_minutes": getattr(t, "break_minutes", None) or 15,
+        "lunch_start": getattr(t, "lunch_start", None) or "",
+        "lunch_minutes": getattr(t, "lunch_minutes", None) or 45,
         "group_count": t.group_count,
         "knockout_spots": t.knockout_spots,
         "status": t.status,
@@ -116,6 +125,7 @@ def _player_sort(p: Player) -> tuple:
 def load_tournament(session: Session, tid: int) -> Tournament:
     t = session.execute(
         select(Tournament)
+        .execution_options(populate_existing=True)
         .options(
             selectinload(Tournament.players),
             selectinload(Tournament.courts),
@@ -197,6 +207,11 @@ def update_tournament(session: Session, t: Tournament, data: dict[str, Any]) -> 
         "win_by": (1, 10),
         "max_score": (1, 99),
         "num_courts": (1, 32),
+        "avg_match_minutes": (5, 180),
+        "changeover_minutes": (0, 30),
+        "break_every_waves": (0, 20),
+        "break_minutes": (0, 120),
+        "lunch_minutes": (15, 180),
         "group_count": (2, 16),
         "knockout_spots": (1, 8),
     }
@@ -219,8 +234,16 @@ def update_tournament(session: Session, t: Tournament, data: dict[str, Any]) -> 
         setattr(t, key, num)
     if "deuce_enabled" in data:
         t.deuce_enabled = bool(data["deuce_enabled"])
+    if "auto_assign_courts" in data:
+        t.auto_assign_courts = bool(data["auto_assign_courts"])
+    if "day_start" in data:
+        t.day_start = normalize_hhmm(str(data.get("day_start") or ""), "09:00") or "09:00"
+    if "lunch_start" in data:
+        t.lunch_start = normalize_hhmm(str(data.get("lunch_start") or ""), None)
     if "num_courts" in data and t.num_courts:
         _sync_courts(session, t, t.num_courts)
+    if t.draw:
+        refresh_courts_and_schedule(session, t)
     return t
 
 
@@ -247,6 +270,71 @@ def _sync_courts(session: Session, t: Tournament, count: int) -> None:
                 raise AppError(f"{court.name} is in use and cannot be removed.")
             session.delete(court)
         t.courts[:] = existing[:count]
+
+
+def _match_engine_view(m: Match) -> dict[str, Any]:
+    return {
+        "id": m.id,
+        "round_index": m.round_index,
+        "match_number": m.match_number,
+        "player1_id": m.player1_id,
+        "player2_id": m.player2_id,
+        "player1_is_bye": m.player1_is_bye,
+        "player2_is_bye": m.player2_is_bye,
+        "player1_source": m.player1_source,
+        "player2_source": m.player2_source,
+        "court_id": m.court_id,
+        "scheduled_time": m.scheduled_time,
+        "status": m.status,
+        "result_type": m.result_type,
+        "winner_id": m.winner_id,
+    }
+
+
+def schedule_settings(t: Tournament) -> dict[str, Any]:
+    return {
+        "day_start": getattr(t, "day_start", None) or "09:00",
+        "avg_match_minutes": getattr(t, "avg_match_minutes", None) or 25,
+        "changeover_minutes": getattr(t, "changeover_minutes", None) or 5,
+        "break_every_waves": getattr(t, "break_every_waves", None) or 0,
+        "break_minutes": getattr(t, "break_minutes", None) or 15,
+        "lunch_start": getattr(t, "lunch_start", None) or "",
+        "lunch_minutes": getattr(t, "lunch_minutes", None) or 45,
+    }
+
+
+def refresh_courts_and_schedule(
+    session: Session,
+    t: Tournament,
+    assign: bool | None = None,
+    times: bool = True,
+) -> None:
+    """Fill courts (if auto-assign is on) and estimated start times."""
+    if not t.matches:
+        return
+    if t.num_courts:
+        _sync_courts(session, t, t.num_courts)
+    courts = sorted(t.courts, key=lambda c: c.sort_order)
+    views = [_match_engine_view(m) for m in t.matches]
+    should_assign = bool(getattr(t, "auto_assign_courts", True)) if assign is None else assign
+    if should_assign and courts:
+        assign_available_courts(views, [c.id for c in courts])
+        by_id = {row["id"]: row for row in views}
+        for match in t.matches:
+            if match.status in {"completed", "walkover", "retired", "cancelled"}:
+                continue
+            match.court_id = by_id[match.id].get("court_id")
+            session.expire(match, ["court"])
+    if times:
+        estimate_times(views, len(courts) or t.num_courts or 1, schedule_settings(t))
+        by_id = {row["id"]: row for row in views}
+        for match in t.matches:
+            if match.result_type == "bye":
+                continue
+            if match.status in {"completed", "walkover", "retired"} and match.scheduled_time:
+                continue
+            match.scheduled_time = by_id[match.id].get("scheduled_time")
+    session.flush()
 
 
 def add_player(session: Session, t: Tournament, data: dict[str, Any]) -> Player:
@@ -470,6 +558,8 @@ def generate_draw(
         t.draw = draw
         _persist_matches(session, t, draw, payload)
         t.status = "upcoming"
+        session.flush()
+        refresh_courts_and_schedule(session, t)
         return draw
 
     try:
@@ -491,6 +581,8 @@ def generate_draw(
     t.draw = draw
     _persist_matches(session, t, draw, payload)
     t.status = "upcoming"
+    session.flush()
+    refresh_courts_and_schedule(session, t)
     return draw
 
 
@@ -557,10 +649,15 @@ def start_tournament(session: Session, t: Tournament) -> Tournament:
         t.draw.locked = True
     if t.status != "completed":
         t.status = "live"
+    session.flush()
+    refresh_courts_and_schedule(session, t)
     return t
 
 
 def match_to_dict(m: Match) -> dict[str, Any]:
+    court = m.court
+    if court is None and m.court_id and m.tournament is not None:
+        court = next((c for c in m.tournament.courts if c.id == m.court_id), None)
     return {
         "id": m.id,
         "round_index": m.round_index,
@@ -573,7 +670,7 @@ def match_to_dict(m: Match) -> dict[str, Any]:
         "player2_is_bye": m.player2_is_bye,
         "player1_source": m.player1_source,
         "player2_source": m.player2_source,
-        "court": {"id": m.court.id, "name": m.court.name} if m.court else None,
+        "court": {"id": court.id, "name": court.name} if court else None,
         "court_id": m.court_id,
         "scheduled_time": m.scheduled_time,
         "status": m.status,
@@ -610,6 +707,19 @@ def start_match(session: Session, t: Tournament, match: Match) -> Match:
         match.id,
     ):
         raise AppError("A player is already in a live match.")
+    if getattr(t, "auto_assign_courts", True) and t.courts:
+        occupied = {
+            m.court_id
+            for m in t.matches
+            if m.id != match.id and m.court_id and m.status in {"live", "ready"}
+        }
+        free = [c.id for c in sorted(t.courts, key=lambda c: c.sort_order) if c.id not in occupied]
+        if match.court_id and match.court_id in occupied:
+            raise AppError("That court already has a match. Finish it first.")
+        if not match.court_id:
+            if not free:
+                raise AppError("All courts are busy. Enter a result to free one.")
+            match.court_id = free[0]
     match.status = "live"
     match.started_at = utcnow()
     if t.status == "upcoming":
@@ -688,6 +798,8 @@ def enter_result(
             t.status = "completed"
     elif t.format == "round_robin" and not remaining:
         t.status = "completed"
+    session.flush()
+    refresh_courts_and_schedule(session, t)
     return match
 
 
@@ -886,11 +998,15 @@ def full_payload(t: Tournament) -> dict[str, Any]:
         and m["player1"]
         and m["player2"]
     ]
+    upcoming.sort(key=lambda m: (0 if m.get("court_id") else 1, m.get("scheduled_time") or "99", m["match_number"]))
+    waiting = [m for m in upcoming if not m.get("court_id")]
+    on_court = [m for m in upcoming if m.get("court_id")]
     live = [m for m in matches if m["status"] == "live"]
     return {
         "tournament": tournament_to_dict(t, include_nested=True),
         "matches": matches,
-        "upcoming": upcoming[:12],
+        "upcoming": on_court[:12],
+        "waiting": waiting[:12],
         "live": live,
         "results": results_payload(t),
         "preview": draw_preview(t),

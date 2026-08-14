@@ -75,9 +75,14 @@ def test_full_eight_player_lifecycle(session):
         ready = [
             m
             for m in t_local.matches
-            if m.status == "ready" and m.player1_id and m.player2_id
+            if m.status == "ready" and m.player1_id and m.player2_id and m.court_id
         ]
+        played_now = []
         for match in ready:
+            t_local = svc.load_tournament(session, t.id)
+            match = next(m for m in t_local.matches if m.id == match.id)
+            if match.status != "ready":
+                continue
             svc.start_match(session, t_local, match)
             svc.enter_result(
                 session,
@@ -85,8 +90,9 @@ def test_full_eight_player_lifecycle(session):
                 match,
                 {"result_type": "normal", "scores": [[21, 15], [21, 12]]},
             )
-        session.commit()
-        return ready
+            session.commit()
+            played_now.append(match)
+        return played_now
 
     played = 0
     for _ in range(8):
@@ -167,3 +173,43 @@ def test_walkover_advances(session):
     t = svc.load_tournament(session, t.id)
     nxt = session.get(type(match), match.next_match_id)
     assert nxt.player1_id == match.player1_id or nxt.player2_id == match.player1_id
+
+
+def test_auto_assign_two_courts_then_rotate(session):
+    t, session = _make_eight(session)
+    svc.update_tournament(
+        session,
+        t,
+        {
+            "auto_assign_courts": True,
+            "day_start": "09:00",
+            "avg_match_minutes": 25,
+            "changeover_minutes": 5,
+        },
+    )
+    svc.generate_draw(session, t, rng_seed=42)
+    svc.lock_draw(session, t)
+    svc.start_tournament(session, t)
+    session.commit()
+    t = svc.load_tournament(session, t.id)
+    ready = [m for m in t.matches if m.status == "ready"]
+    assert len(ready) == 4
+    assigned = [m for m in ready if m.court_id]
+    waiting = [m for m in ready if not m.court_id]
+    assert len(assigned) == 2
+    assert len(waiting) == 2
+    assert len({m.court_id for m in assigned}) == 2
+    assert all(m.scheduled_time for m in ready)
+    first_wave = {m.scheduled_time for m in assigned}
+    later = {m.scheduled_time for m in waiting}
+    assert first_wave != later
+
+    first = assigned[0]
+    held = {m.id for m in assigned}
+    svc.enter_result(session, t, first, {"result_type": "normal", "scores": [[21, 11], [21, 9]]})
+    session.commit()
+    t = svc.load_tournament(session, t.id)
+    still = [m for m in t.matches if m.status == "ready" and m.court_id]
+    assert len(still) == 2
+    assert first.id not in {m.id for m in still}
+    assert any(m.id not in held for m in still)
