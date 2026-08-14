@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Create Tournament · Dolphin{% endblock %}
+{% block content %}
+  <nav class="crumb"><a href="{{ url_for('home') }}">Tournaments</a> / Create</nav>
+  <h1 class="page-title">Create Tournament</h1>
+  <p class="lede tight">Start with the basics. Format, scoring, and players come next.</p>
+
+  <form id="create-form" class="form-stack" autocomplete="on">
+    <label>Tournament name
+      <input name="name" required placeholder="Dolphin Open 2026">
+    </label>
+    <div class="form-grid">
+      <label>Date
+        <input name="date" type="date">
+      </label>
+      <label>Venue
+        <input name="venue" placeholder="Dolphin Academy courts">
+      </label>
+    </div>
+    <div class="form-grid">
+      <label>Organizer
+        <input name="organizer" placeholder="Dolphin Badminton Academy">
+      </label>
+      <label>Sport
+        <select name="sport">
+          <option value="badminton" selected>Badminton</option>
+          <option value="tennis">Tennis</option>
+          <option value="table tennis">Table tennis</option>
+          <option value="squash">Squash</option>
+          <option value="pickleball">Pickleball</option>
+        </select>
+      </label>
+    </div>
+    <label>Description <span class="opt">optional</span>
+      <textarea name="description" rows="3" placeholder="Category, age group, notes…"></textarea>
+    </label>
+    <label>Logo <span class="opt">optional</span>
+      <input name="logo" type="file" accept="image/*">
+    </label>
+    <div class="form-actions">
+      <a class="btn btn-ghost" href="{{ url_for('home') }}">Cancel</a>
+      <button class="btn btn-primary" type="submit">Create Tournament</button>
+    </div>
+  </form>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById("create-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const data = Object.fromEntries(new FormData(form).entries());
+    delete data.logo;
+    const file = form.logo.files[0];
+    if (file) {
+      if (file.size > 400000) {
+        alert("Please use a logo smaller than 400 KB.");
+        return;
+      }
+      data.logo_data = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+    }
+    const res = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || "Could not create tournament");
+      return;
+    }
+    location.href = "/tournaments/" + json.tournament.id;
+  });
+</script>
+{% endblock %}

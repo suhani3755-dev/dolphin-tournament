@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ tournament.name }} · Dolphin{% endblock %}
+{% block body_class %}page-tournament{% endblock %}
+{% block top_actions %}
+  <span class="status-pill status-{{ tournament.status }}" id="status-pill">{{ tournament.status }}</span>
+{% endblock %}
+{% block content %}
+  <div id="app" data-tid="{{ tid }}"></div>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

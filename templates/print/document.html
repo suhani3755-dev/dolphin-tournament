@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>
+    {% if kind == 'players' %}Player List
+    {% elif kind == 'results' %}Results
+    {% elif kind == 'schedule' %}Match Schedule
+    {% elif kind == 'empty' %}Empty Draw
+    {% elif kind == 'final' %}Final Draw
+    {% else %}Draw
+    {% endif %}
+    · {{ t.name }}
+  </title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/print.css') }}">
+</head>
+<body>
+  <header class="print-head">
+    {% if t.logo_data %}<img class="logo" src="{{ t.logo_data }}" alt="">{% endif %}
+    <div>
+      <p class="academy">Dolphin Badminton Academy</p>
+      <h1>{{ t.name }}</h1>
+      <p class="meta">
+        {{ t.date or "Date TBC" }}
+        {% if t.venue %} · {{ t.venue }}{% endif %}
+        · {{ t.event_type|title }}
+        · {{ t.format_label }}
+        · {{ t.sport|title }}
+      </p>
+    </div>
+    <button class="no-print print-btn" onclick="window.print()">Print</button>
+  </header>
+
+  {% if kind in ['draw', 'empty', 'final'] %}
+    <section>
+      <h2>
+        {% if kind == 'empty' %}Empty Draw
+        {% elif kind == 'final' %}Final Draw
+        {% else %}Current Draw
+        {% endif %}
+      </h2>
+      {% set ns = namespace(rounds=[]) %}
+      {% for m in matches %}
+        {% if m.round_name not in ns.rounds %}
+          {% set ns.rounds = ns.rounds + [m.round_name] %}
+        {% endif %}
+      {% endfor %}
+      {% for round_name in ns.rounds %}
+        <h3>{{ round_name }}</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Match</th>
+              <th>Player 1</th>
+              <th>Player 2</th>
+              {% if kind != 'empty' %}<th>Score</th><th>Winner</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+          {% for m in matches if m.round_name == round_name %}
+            <tr>
+              <td>{{ m.match_number }}</td>
+              <td>
+                {% if m.player1_is_bye %}BYE
+                {% elif m.player1 %}
+                  {% if m.player1.seed %}[{{ m.player1.seed }}] {% endif %}{{ m.player1.name }}
+                {% else %}{{ m.player1_source or "TBD" }}
+                {% endif %}
+              </td>
+              <td>
+                {% if m.player2_is_bye %}BYE
+                {% elif m.player2 %}
+                  {% if m.player2.seed %}[{{ m.player2.seed }}] {% endif %}{{ m.player2.name }}
+                {% else %}{{ m.player2_source or "TBD" }}
+                {% endif %}
+              </td>
+              {% if kind != 'empty' %}
+              <td>
+                {% if m.scores %}
+                  {% for g in m.scores %}{{ g[0] }}–{{ g[1] }}{% if not loop.last %}, {% endif %}{% endfor %}
+                {% endif %}
+              </td>
+              <td>
+                {% if m.winner_id and m.player1 and m.winner_id == m.player1.id %}{{ m.player1.name }}
+                {% elif m.winner_id and m.player2 %}{{ m.player2.name }}
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+      {% if kind == 'final' and results.champion %}
+        <p class="champion">Champion: {{ results.champion.name }}{% if results.runner_up %} · Runner-up: {{ results.runner_up.name }}{% endif %}</p>
+      {% endif %}
+    </section>
+  {% elif kind == 'players' %}
+    <h2>Player List</h2>
+    <table>
+      <thead><tr><th>#</th><th>Player</th><th>Club</th><th>Ranking</th><th>Seed</th></tr></thead>
+      <tbody>
+      {% for p in t.players %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ p.club }}</td>
+          <td>{{ p.ranking if p.ranking is not none else "" }}</td>
+          <td>{{ p.seed if p.seed else "" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% elif kind == 'schedule' %}
+    <h2>Match Schedule</h2>
+    <table>
+      <thead><tr><th>Match</th><th>Round</th><th>Players</th><th>Court</th><th>Time</th><th>Status</th></tr></thead>
+      <tbody>
+      {% for m in matches %}
+        <tr>
+          <td>{{ m.match_number }}</td>
+          <td>{{ m.round_name }}</td>
+          <td>
+            {% if m.player1_is_bye or m.player2_is_bye %}
+              {{ m.player1.name if m.player1 else "BYE" }} vs {{ m.player2.name if m.player2 else "BYE" }}
+            {% else %}
+              {{ m.player1.name if m.player1 else (m.player1_source or "TBD") }}
+              vs
+              {{ m.player2.name if m.player2 else (m.player2_source or "TBD") }}
+            {% endif %}
+          </td>
+          <td>{{ m.court.name if m.court else "" }}</td>
+          <td>{{ m.scheduled_time or "" }}</td>
+          <td>{{ m.status }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% elif kind == 'results' %}
+    <h2>Results</h2>
+    {% if results.champion %}<p class="champion">Champion: {{ results.champion.name }}</p>{% endif %}
+    {% if results.runner_up %}<p>Runner-up: {{ results.runner_up.name }}</p>{% endif %}
+    {% if results.semifinalists %}
+      <p>Semifinalists:
+        {% for p in results.semifinalists %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </p>
+    {% endif %}
+    <table>
+      <thead><tr><th>Match</th><th>Round</th><th>Result</th></tr></thead>
+      <tbody>
+      {% for m in results.matches %}
+        <tr>
+          <td>{{ m.match_number }}</td>
+          <td>{{ m.round_name }}</td>
+          <td>
+            {{ m.player1.name if m.player1 else "" }}
+            {% if m.scores %}
+              {% for g in m.scores %}{{ g[0] }}–{{ g[1] }}{% if not loop.last %}, {% endif %}{% endfor %}
+            {% else %}{{ m.result_type }}{% endif %}
+            {{ m.player2.name if m.player2 else "" }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</body>
+</html>

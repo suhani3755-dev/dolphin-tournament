@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Match {{ match.match_number if match else "" }} Sheet · {{ t.name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/print.css') }}">
+</head>
+<body class="sheet">
+  <button class="no-print print-btn" onclick="window.print()">Print</button>
+  <header class="print-head">
+    <div>
+      <p class="academy">Dolphin Badminton Academy</p>
+      <h1>{{ t.name }}</h1>
+      <p class="meta">{{ t.date or "" }} {% if t.venue %}· {{ t.venue }}{% endif %} · {{ t.event_type|title }}</p>
+    </div>
+  </header>
+  {% if match %}
+  <h2>Match {{ match.match_number }} · {{ match.round_name }}</h2>
+  <p>Court: {{ match.court.name if match.court else "________" }} · Time: {{ match.scheduled_time or "________" }}</p>
+  <table class="score-grid">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Player</th>
+        <th>Seed</th>
+        {% for i in range(t.best_of) %}<th>G{{ i + 1 }}</th>{% endfor %}
+        <th>Winner</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>{{ match.player1.name if match.player1 else (match.player1_source or "") }}</td>
+        <td>{{ match.player1.seed if match.player1 and match.player1.seed else "" }}</td>
+        {% for i in range(t.best_of) %}<td class="box"></td>{% endfor %}
+        <td class="box"></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>{{ match.player2.name if match.player2 else (match.player2_source or "") }}</td>
+        <td>{{ match.player2.seed if match.player2 and match.player2.seed else "" }}</td>
+        {% for i in range(t.best_of) %}<td class="box"></td>{% endfor %}
+        <td class="box"></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="sign">Umpire: ______________________ · Score: ______________________</p>
+  {% else %}
+  <p>Select a match to print a sheet.</p>
+  {% endif %}
+</body>
+</html>

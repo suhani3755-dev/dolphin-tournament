@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ payload.player.name }} · {{ tournament_name }}{% endblock %}
+{% block content %}
+  <nav class="crumb"><a href="{{ url_for('tournament_page', tid=tid) }}">{{ tournament_name }}</a> / Player</nav>
+  <header class="player-hero">
+    <p class="eyebrow">{% if payload.player.seed %}Seed {{ payload.player.seed }}{% else %}Unseeded{% endif %}</p>
+    <h1>{{ payload.player.name }}</h1>
+    <p class="muted">{{ payload.player.club or "No club listed" }}</p>
+  </header>
+  <div class="stat-row">
+    <div><span>Played</span><strong>{{ payload.matches_played }}</strong></div>
+    <div><span>Wins</span><strong>{{ payload.wins }}</strong></div>
+    <div><span>Losses</span><strong>{{ payload.losses }}</strong></div>
+    <div><span>Status</span><strong>{{ payload.current_status }}</strong></div>
+  </div>
+  {% if payload.next_match %}
+  <section class="panel">
+    <h2>Next match</h2>
+    <p>Match {{ payload.next_match.match_number }} · {{ payload.next_match.round_name }}</p>
+    <p>
+      {{ payload.next_match.player1.name if payload.next_match.player1 else payload.next_match.player1_source }}
+      vs
+      {{ payload.next_match.player2.name if payload.next_match.player2 else payload.next_match.player2_source }}
+    </p>
+    <p class="muted">
+      {{ payload.next_match.court.name if payload.next_match.court else "Court TBC" }}
+      {% if payload.next_match.scheduled_time %} · {{ payload.next_match.scheduled_time }}{% endif %}
+      · {{ payload.next_match.status }}
+    </p>
+  </section>
+  {% endif %}
+  <section class="panel">
+    <h2>Match history</h2>
+    {% if payload.history %}
+    <ul class="plain-list">
+      {% for m in payload.history %}
+      <li>
+        Match {{ m.match_number }} · {{ m.round_name }} —
+        {{ m.player1.name if m.player1 else "TBD" }}
+        {% if m.scores %}
+          {% for g in m.scores %}{{ g[0] }}-{{ g[1] }}{% if not loop.last %}, {% endif %}{% endfor %}
+        {% endif %}
+        {{ m.player2.name if m.player2 else "TBD" }}
+        {% if m.winner_id %}
+          · Winner: {{ m.player1.name if m.winner_id == m.player1.id else m.player2.name }}
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No matches yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}
