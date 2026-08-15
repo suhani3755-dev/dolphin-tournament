@@ -7,6 +7,7 @@ from functools import wraps
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, render_template, request, session as flask_session, url_for
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
 import db
 import services as svc
@@ -67,9 +68,18 @@ def create_app() -> Flask:
             except svc.AppError as exc:
                 session.rollback()
                 return json_error(str(exc), 400)
+            except IntegrityError:
+                session.rollback()
+                app.logger.exception("Database conflict")
+                return json_error("That change conflicted with existing data. Check for a duplicate seed or player.", 409)
+            except (OperationalError, SQLAlchemyError):
+                session.rollback()
+                app.logger.exception("Database error")
+                return json_error("Database hiccup. Try that again.", 503)
             except Exception:
                 session.rollback()
-                raise
+                app.logger.exception("Unhandled API error")
+                return json_error("Something went wrong. Try that again.", 500)
             finally:
                 session.close()
 
@@ -176,9 +186,10 @@ def create_app() -> Flask:
             if len(people) == 1:
                 return redirect(url_for("person_page", tid=tid, pid=people[0].id))
             payload = svc.player_page(t, player)
+            tournament_name = t.name
         finally:
             session.close()
-        return render_template("player.html", tid=tid, payload=payload, tournament_name=t.name)
+        return render_template("player.html", tid=tid, payload=payload, tournament_name=tournament_name)
 
     @app.get("/tournaments/<int:tid>/people/<int:pid>")
     def person_page(tid: int, pid: int):
@@ -189,9 +200,10 @@ def create_app() -> Flask:
             if not person or person.tournament_id != tid:
                 return redirect(url_for("tournament_page", tid=tid))
             payload = svc.person_page(t, person)
+            tournament_name = t.name
         finally:
             session.close()
-        return render_template("person.html", tid=tid, payload=payload, tournament_name=t.name, is_admin=is_admin())
+        return render_template("person.html", tid=tid, payload=payload, tournament_name=tournament_name, is_admin=is_admin())
 
     @app.get("/print/<int:tid>/<kind>")
     def print_page(tid: int, kind: str):
@@ -241,10 +253,6 @@ def create_app() -> Flask:
     @api
     def api_get(session, tid: int):
         t = svc.load_tournament(session, tid)
-        if t.matches:
-            svc.refresh_courts_and_schedule(session, t)
-            session.flush()
-            t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, "admin": is_admin(), **svc.full_payload(t, event_arg())})
 
     @app.patch("/api/tournaments/<int:tid>")

@@ -14,8 +14,8 @@
 {% endblock %}
 {% block scripts %}
   {% if public %}
-  <script src="{{ url_for('static', filename='js/public.js') }}?v=20260815-platform"></script>
+  <script src="{{ url_for('static', filename='js/public.js') }}?v=20260815-stable"></script>
   {% else %}
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260815-platform"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260815-stable"></script>
   {% endif %}
 {% endblock %}

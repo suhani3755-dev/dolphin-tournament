@@ -570,6 +570,8 @@ def add_player(session: Session, t: Tournament, data: dict[str, Any]) -> Player:
         if not partner or partner.tournament_id != t.id:
             raise AppError("Partner not found.")
     elif partner_name or event.event_type == "doubles":
+        if event.event_type == "doubles" and not partner_name and not partner:
+            raise AppError("Doubles needs a partner name.")
         if partner_name:
             partner = find_or_create_person(
                 session,

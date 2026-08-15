@@ -28,17 +28,22 @@
   async function api(url, opts = {}) {
     const body = opts.body ? { ...opts.body } : null;
     if (body && eventId && body.event_id == null) body.event_id = eventId;
-    const res = await fetch(url, {
-      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-      credentials: "same-origin",
-      ...opts,
-      body: body ? JSON.stringify(body) : opts.raw || undefined,
-    });
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        credentials: "same-origin",
+        ...opts,
+        body: body ? JSON.stringify(body) : opts.raw || undefined,
+      });
+    } catch (_err) {
+      throw new Error("Connection dropped. Try that again.");
+    }
     if (res.status === 401) {
       location.href = `/login?next=/admin/tournaments/${tid}`;
       throw new Error("Admin login required.");
     }
-    const json = await res.json().catch(() => ({ ok: false, error: "Server error" }));
+    const json = await res.json().catch(() => ({ ok: false, error: "Server hiccup. Try that again." }));
     if (!json.ok) {
       const err = new Error(json.error || "Request failed");
       err.conflicts = json.conflicts || [];
@@ -339,7 +344,7 @@
           <form id="add-player" class="form-stack">
             <label>Name <input name="name" required></label>
             <label>Club / Academy <input name="club"></label>
-            ${t().event_type === "doubles" ? `<label>Partner name <input name="partner_name" placeholder="Required for doubles"></label>` : ""}
+            ${((state.event && state.event.event_type) || t().event_type) === "doubles" ? `<label>Partner name <input name="partner_name" placeholder="Required for doubles"></label>` : ""}
             <div class="form-grid">
               <label>Ranking <input name="ranking" type="number"></label>
               <label>Seed <input name="seed" type="number" min="1"></label>

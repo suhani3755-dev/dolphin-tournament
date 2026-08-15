@@ -54,6 +54,10 @@ def init_engine(url: str | None = None) -> Engine:
     kwargs: dict = {"future": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        # Neon (and Render) drop idle connections. Recycle and ping so a
+        # sleeping compute does not turn the next click into a 500.
+        kwargs.update(pool_pre_ping=True, pool_recycle=280, pool_size=3, max_overflow=2)
     ENGINE = create_engine(url, **kwargs)
 
     if url.startswith("sqlite"):
