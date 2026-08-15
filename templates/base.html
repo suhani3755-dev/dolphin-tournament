@@ -27,7 +27,16 @@
           <em>Badminton Academy</em>
         </span>
       </a>
+      <div class="top-actions">
       {% block top_actions %}{% endblock %}
+      {% if request.endpoint not in ("login",) %}
+        {% if session.get("admin") %}
+          <a class="btn btn-ghost" href="{{ url_for('logout') }}">Sign out</a>
+        {% else %}
+          <a class="btn btn-ghost" href="{{ url_for('login') }}">Admin</a>
+        {% endif %}
+      {% endif %}
+      </div>
     </header>
     <main class="main">
       {% block content %}{% endblock %}

@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Tournaments · Dolphin Badminton Academy{% endblock %}
 {% block top_actions %}
-  <a class="btn btn-primary" href="{{ url_for('new_tournament') }}">Create Tournament</a>
+  {% if is_admin %}
+    <a class="btn btn-primary" href="{{ url_for('new_tournament') }}">Create Tournament</a>
+  {% endif %}
 {% endblock %}
 {% block content %}
   <section class="hero">
@@ -19,7 +21,7 @@
     <ul class="tourney-list">
       {% for t in tournaments %}
       <li>
-        <a class="tourney-row" href="{{ url_for('tournament_page', tid=t.id) }}">
+        <a class="tourney-row" href="{% if is_admin %}{{ url_for('admin_tournament', tid=t.id) }}{% else %}{{ url_for('tournament_page', tid=t.id) }}{% endif %}">
           <span class="tourney-name">{{ t.name }}</span>
           <span class="muted">{% if t.date and t.date[4] == '-' %}{{ t.date[8:10]|int }} {% if t.date[5:7] == '01' %}January{% elif t.date[5:7] == '02' %}February{% elif t.date[5:7] == '03' %}March{% elif t.date[5:7] == '04' %}April{% elif t.date[5:7] == '05' %}May{% elif t.date[5:7] == '06' %}June{% elif t.date[5:7] == '07' %}July{% elif t.date[5:7] == '08' %}August{% elif t.date[5:7] == '09' %}September{% elif t.date[5:7] == '10' %}October{% elif t.date[5:7] == '11' %}November{% else %}December{% endif %} {{ t.date[:4] }}{% else %}{{ t.date or "Date TBC" }}{% endif %}{% if t.venue %} · {{ t.venue }}{% endif %}</span>
           <span class="status-pill status-{{ t.status }}">{{ t.status }}</span>
@@ -31,7 +33,11 @@
   {% else %}
   <section class="empty-state">
     <p>No tournaments yet.</p>
+    {% if is_admin %}
     <a class="btn btn-primary" href="{{ url_for('new_tournament') }}">Create Tournament</a>
+    {% else %}
+    <p class="muted">Check back when the academy publishes a draw.</p>
+    {% endif %}
   </section>
   {% endif %}
 {% endblock %}

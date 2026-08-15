@@ -7,6 +7,7 @@
   let query = "";
   let roundFilter = "";
   let modal = null;
+  let eventId = null;
 
   const $ = (html) => html;
   const esc = (s) =>
@@ -25,21 +26,36 @@
   }
 
   async function api(url, opts = {}) {
+    const body = opts.body ? { ...opts.body } : null;
+    if (body && eventId && body.event_id == null) body.event_id = eventId;
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      credentials: "same-origin",
       ...opts,
-      body: opts.body ? JSON.stringify(opts.body) : opts.raw || undefined,
+      body: body ? JSON.stringify(body) : opts.raw || undefined,
     });
+    if (res.status === 401) {
+      location.href = `/login?next=/admin/tournaments/${tid}`;
+      throw new Error("Admin login required.");
+    }
     const json = await res.json().catch(() => ({ ok: false, error: "Server error" }));
-    if (!json.ok) throw new Error(json.error || "Request failed");
+    if (!json.ok) {
+      const err = new Error(json.error || "Request failed");
+      err.conflicts = json.conflicts || [];
+      err.status = res.status;
+      throw err;
+    }
     state = json;
+    if (json.event && json.event.id) eventId = json.event.id;
     render();
     return json;
   }
 
   async function load() {
-    const res = await fetch(`/api/tournaments/${tid}`);
+    const q = eventId ? `?event_id=${eventId}` : "";
+    const res = await fetch(`/api/tournaments/${tid}${q}`, { credentials: "same-origin" });
     state = await res.json();
+    if (!eventId && state.event) eventId = state.event.id;
     pickTab();
     render();
   }
@@ -70,6 +86,12 @@
 
   function playerLink(p) {
     if (!p) return "";
+    if (p.people && p.people.length) {
+      return p.people
+        .map((person) => `<a href="/tournaments/${tid}/people/${person.id}">${esc(person.name)}</a>`)
+        .join(" / ");
+    }
+    if (p.person_id) return `<a href="/tournaments/${tid}/people/${p.person_id}">${esc(p.name)}</a>`;
     return `<a href="/tournaments/${tid}/players/${p.id}">${esc(p.name)}</a>`;
   }
 
@@ -115,10 +137,18 @@
     const pill = document.getElementById("status-pill");
     pill.textContent = tr.status === "live" ? "LIVE" : tr.status;
     pill.className = `status-pill status-${tr.status}`;
-    const meta = [tr.sport, tr.event_type, tr.format_label || tr.format]
+    const evs = tr.events || [];
+    const ev = evs.find((e) => e.id === eventId) || state.event;
+    const meta = [tr.sport, ev && ev.name, ev && (ev.format_label || tr.format_label || tr.format)]
       .filter(Boolean)
       .map((s) => String(s).replace(/_/g, " "))
       .join(" · ");
+    const picker =
+      evs.length > 1
+        ? `<select class="event-select" id="event-select">${evs
+            .map((e) => `<option value="${e.id}" ${e.id === eventId ? "selected" : ""}>${esc(e.name)}</option>`)
+            .join("")}</select>`
+        : "";
     return `
       <div class="dash-head">
         <div>
@@ -128,6 +158,7 @@
           ${headerStats()}
         </div>
         <div class="actions">
+          ${picker}
           ${tr.draw && !tr.draw.locked ? `<button class="btn" data-act="lock">Lock Draw</button>` : ""}
           ${tr.draw && tr.draw.locked && tr.status !== "completed" ? `<button class="btn btn-compact" data-act="unlock">🔒 Unlock Draw</button>` : ""}
           ${tr.draw && tr.status !== "live" && tr.status !== "completed" ? `<button class="btn btn-primary" data-act="start">Start Tournament</button>` : ""}
@@ -226,11 +257,47 @@
         <label>Lunch length (minutes)
           <input name="lunch_minutes" type="number" min="15" max="180" value="${esc(tr.lunch_minutes || 45)}">
         </label>
+        <label>Minimum rest between a person's matches (minutes)
+          <input name="min_rest_minutes" type="number" min="0" max="180" value="${esc(tr.min_rest_minutes ?? 30)}">
+        </label>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">Save setup</button>
           <button class="btn" type="button" data-tab="players">Continue to players</button>
         </div>
       </form>
+      <div class="panel" style="max-width:760px;margin-top:18px">
+        <h2>Events</h2>
+        <p class="muted">One tournament can hold several events. The draw engine still runs per event.</p>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Event</th><th>Type</th><th>Entries</th><th></th></tr></thead>
+          <tbody>
+            ${(tr.events || []).map((e) => `<tr>
+              <td>${esc(e.name)}</td>
+              <td>${esc(e.event_type)}</td>
+              <td>${e.player_count ?? ""}</td>
+              <td>${(tr.events || []).length > 1 ? `<button class="btn btn-ghost" data-del-event="${e.id}">Remove</button>` : ""}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table></div>
+        <form id="add-event" class="form-stack">
+          <div class="form-grid">
+            <label>Add event
+              <select name="category">
+                <option value="">Custom</option>
+                <option value="WS">Women's Singles</option>
+                <option value="WD">Women's Doubles</option>
+                <option value="XD">Mixed Doubles</option>
+                <option value="MS">Men's Singles</option>
+                <option value="MD">Men's Doubles</option>
+              </select>
+            </label>
+            <label>Custom name <span class="opt">optional</span>
+              <input name="name" placeholder="U19 Mixed Doubles">
+            </label>
+          </div>
+          <button class="btn" type="submit">Add event</button>
+        </form>
+      </div>
     `;
   }
 
@@ -255,7 +322,7 @@
                     (p, i) => `
                   <tr>
                     <td>${i + 1}</td>
-                    <td><a href="/tournaments/${tid}/players/${p.id}">${esc(p.name)}</a></td>
+                    <td>${playerLink(p)}</td>
                     <td>${esc(p.club)}</td>
                     <td>${p.ranking ?? ""}</td>
                     <td><input class="inline seed-input" data-id="${p.id}" type="number" min="1" value="${p.seed ?? ""}"></td>
@@ -272,6 +339,7 @@
           <form id="add-player" class="form-stack">
             <label>Name <input name="name" required></label>
             <label>Club / Academy <input name="club"></label>
+            ${t().event_type === "doubles" ? `<label>Partner name <input name="partner_name" placeholder="Required for doubles"></label>` : ""}
             <div class="form-grid">
               <label>Ranking <input name="ranking" type="number"></label>
               <label>Seed <input name="seed" type="number" min="1"></label>
@@ -365,7 +433,7 @@
           <div class="slot ${w2 ? "winner" : ""}${m.player2_is_bye ? " is-bye" : ""}">${slotLabel(m, 2)}</div>
           <div class="match-meta">
             <span>${metaBits.join(" · ")}</span>
-            <span>${esc(scoreLine(m) || m.scheduled_time || "")}</span>
+            <span>${esc(scoreLine(m) || "")} ${m.time_label ? `<span class="time-tag">${esc(m.time_label)}</span>` : ""} ${esc(m.expected_time || m.scheduled_time || "")}</span>
           </div>
         </article>
       </div>
@@ -416,7 +484,7 @@
             <div class="side-match">
               <strong>Match ${m.match_number}</strong>
               <div>${namesOf(m)}</div>
-              <div class="muted">${courtName(m) ? esc(courtName(m)) : "Waiting"} · ${m.scheduled_time ? esc(m.scheduled_time) : esc(m.status)}</div>
+              <div class="muted">${courtName(m) ? esc(courtName(m)) : "Waiting"} · ${m.expected_time || m.scheduled_time ? `${m.time_label ? esc(m.time_label) + " " : ""}${esc(m.expected_time || m.scheduled_time)}` : esc(m.status)}</div>
               <button class="btn btn-primary" data-enter="${m.id}">Enter result</button>
             </div>`).join("") : `<p class="muted">No matches waiting.</p>`}
         </div>
@@ -427,7 +495,7 @@
             <div class="side-match">
               <strong>Match ${m.match_number}</strong>
               <div>${namesOf(m)}</div>
-              <div class="muted">${m.scheduled_time ? "Est. " + esc(m.scheduled_time) : "Queued"}</div>
+              <div class="muted">${m.scheduled_time ? `<span class="time-tag">${esc(m.time_label || "EXPECTED")}</span> ${esc(m.expected_time || m.scheduled_time)}` : "Queued"}</div>
             </div>`).join("")}
         </div>` : ""}
       </aside>
@@ -512,7 +580,10 @@
                         ${(t().courts || []).map((c) => `<option value="${c.id}" ${m.court_id === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
                       </select>
                     </td>
-                    <td>${esc(m.scheduled_time || "")}</td>
+                    <td>
+                      <input class="inline" data-time="${m.id}" type="time" value="${esc((m.scheduled_time || "").slice(0, 5))}">
+                      ${m.time_label ? `<div class="muted"><span class="time-tag">${esc(m.time_label)}</span></div>` : ""}
+                    </td>
                     <td>${esc(m.status)}</td>
                     <td class="actions">
                       ${m.status === "ready" && (m.court_id || t().auto_assign_courts === false) ? `<button class="btn" data-start="${m.id}">Start</button>` : ""}
@@ -573,12 +644,12 @@
         <h2>Print</h2>
         <p class="muted">Opens a paper layout. Use your browser’s print dialog (A4).</p>
         <div class="actions">
-          <a class="btn" target="_blank" href="/print/${tid}/empty">Empty draw</a>
-          <a class="btn" target="_blank" href="/print/${tid}/draw">Current draw</a>
-          <a class="btn" target="_blank" href="/print/${tid}/final">Final draw</a>
-          <a class="btn" target="_blank" href="/print/${tid}/schedule">Match schedule</a>
-          <a class="btn" target="_blank" href="/print/${tid}/players">Player list</a>
-          <a class="btn" target="_blank" href="/print/${tid}/results">Results</a>
+          <a class="btn" target="_blank" href="/print/${tid}/empty?event_id=${eventId || ""}">Empty draw</a>
+          <a class="btn" target="_blank" href="/print/${tid}/draw?event_id=${eventId || ""}">Current draw</a>
+          <a class="btn" target="_blank" href="/print/${tid}/final?event_id=${eventId || ""}">Final draw</a>
+          <a class="btn" target="_blank" href="/print/${tid}/schedule?event_id=${eventId || ""}">Match schedule</a>
+          <a class="btn" target="_blank" href="/print/${tid}/players?event_id=${eventId || ""}">Player list</a>
+          <a class="btn" target="_blank" href="/print/${tid}/results?event_id=${eventId || ""}">Results</a>
         </div>
         <form class="form-stack" style="margin-top:16px" onsubmit="return false">
           <label>Match sheet
@@ -673,7 +744,7 @@
         body.auto_assign_courts = setup.auto_assign_courts.checked;
         if (body.day_start) body.day_start = String(body.day_start).slice(0, 5);
         if (body.lunch_start) body.lunch_start = String(body.lunch_start).slice(0, 5);
-        ["expected_players", "best_of", "points_per_game", "win_by", "max_score", "third_game_points", "num_courts", "avg_match_minutes", "changeover_minutes", "break_every_waves", "break_minutes", "lunch_minutes", "lunch_start"].forEach((k) => {
+        ["expected_players", "best_of", "points_per_game", "win_by", "max_score", "third_game_points", "num_courts", "avg_match_minutes", "changeover_minutes", "break_every_waves", "break_minutes", "lunch_minutes", "lunch_start", "min_rest_minutes"].forEach((k) => {
           if (body[k] === "") body[k] = null;
         });
         try {
@@ -683,6 +754,39 @@
         } catch (err) {
           toast(err.message);
         }
+      });
+    }
+    const addEvent = root.querySelector("#add-event");
+    if (addEvent) {
+      addEvent.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(addEvent).entries());
+        try {
+          const json = await api(`/api/tournaments/${tid}/events`, { method: "POST", body });
+          if (json.event_id) eventId = json.event_id;
+          toast("Event added");
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+    }
+    root.querySelectorAll("[data-del-event]").forEach((el) =>
+      el.addEventListener("click", async () => {
+        if (!confirm("Remove this event and its entries?")) return;
+        try {
+          await api(`/api/tournaments/${tid}/events/${el.dataset.delEvent}`, { method: "DELETE" });
+          eventId = (state.event && state.event.id) || null;
+          toast("Event removed");
+        } catch (err) {
+          toast(err.message);
+        }
+      })
+    );
+    const eventSel = root.querySelector("#event-select");
+    if (eventSel) {
+      eventSel.addEventListener("change", async () => {
+        eventId = Number(eventSel.value);
+        await load();
       });
     }
     const add = root.querySelector("#add-player");
@@ -786,10 +890,16 @@
     root.querySelectorAll("[data-court]").forEach((el) =>
       el.addEventListener("change", async () => {
         try {
-          await api(`/api/matches/${el.dataset.court}`, {
-            method: "PATCH",
-            body: { court_id: el.value ? Number(el.value) : null },
-          });
+          await patchMatch(el.dataset.court, { court_id: el.value ? Number(el.value) : null });
+        } catch (err) {
+          toast(err.message);
+        }
+      })
+    );
+    root.querySelectorAll("[data-time]").forEach((el) =>
+      el.addEventListener("change", async () => {
+        try {
+          await patchMatch(el.dataset.time, { scheduled_time: el.value || null, time_locked: true });
         } catch (err) {
           toast(err.message);
         }
@@ -803,6 +913,19 @@
       });
     }
     bindModal();
+  }
+
+  async function patchMatch(id, body) {
+    try {
+      await api(`/api/matches/${id}`, { method: "PATCH", body });
+    } catch (err) {
+      if (err.status === 409 && confirm(`${err.message}\n\nOverride and keep this time?`)) {
+        await api(`/api/matches/${id}`, { method: "PATCH", body: { ...body, force: true } });
+        toast("Time saved with a conflict warning");
+        return;
+      }
+      throw err;
+    }
   }
 
   async function onAct(act) {

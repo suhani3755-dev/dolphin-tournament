@@ -73,7 +73,7 @@
       alert(json.error || "Could not create tournament");
       return;
     }
-    location.href = "/tournaments/" + json.tournament.id;
+    location.href = "/admin/tournaments/" + json.tournament.id;
   });
 </script>
 {% endblock %}

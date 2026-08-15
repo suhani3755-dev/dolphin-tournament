@@ -3,10 +3,19 @@
 {% block body_class %}page-tournament{% endblock %}
 {% block top_actions %}
   <span class="status-pill status-{{ tournament.status }}" id="status-pill">{{ tournament.status }}</span>
+  {% if public and is_admin %}
+    <a class="btn" href="{{ url_for('admin_tournament', tid=tid) }}">Manage</a>
+  {% elif not public %}
+    <a class="btn" href="{{ url_for('tournament_page', tid=tid) }}">Public view</a>
+  {% endif %}
 {% endblock %}
 {% block content %}
-  <div id="app" data-tid="{{ tid }}"></div>
+  <div id="app" data-tid="{{ tid }}" data-public="{{ '1' if public else '0' }}" data-admin="{{ '1' if is_admin else '0' }}"></div>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260815-paper"></script>
+  {% if public %}
+  <script src="{{ url_for('static', filename='js/public.js') }}?v=20260815-platform"></script>
+  {% else %}
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260815-platform"></script>
+  {% endif %}
 {% endblock %}

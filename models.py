@@ -56,19 +56,26 @@ class Tournament(Base):
     break_minutes: Mapped[int] = mapped_column(Integer, default=15)
     lunch_start: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     lunch_minutes: Mapped[int] = mapped_column(Integer, default=45)
+    min_rest_minutes: Mapped[int] = mapped_column(Integer, default=30)
     group_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     knockout_spots: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+    events: Mapped[list[Event]] = relationship(
+        back_populates="tournament", cascade="all, delete-orphan", order_by="Event.sort_order"
+    )
+    people: Mapped[list[Person]] = relationship(
+        back_populates="tournament", cascade="all, delete-orphan"
+    )
     players: Mapped[list[Player]] = relationship(
         back_populates="tournament", cascade="all, delete-orphan"
     )
     courts: Mapped[list[Court]] = relationship(
         back_populates="tournament", cascade="all, delete-orphan"
     )
-    draw: Mapped[Optional[Draw]] = relationship(
-        back_populates="tournament", cascade="all, delete-orphan", uselist=False
+    draws: Mapped[list[Draw]] = relationship(
+        back_populates="tournament", cascade="all, delete-orphan"
     )
     matches: Mapped[list[Match]] = relationship(
         back_populates="tournament", cascade="all, delete-orphan"
@@ -84,13 +91,77 @@ class Tournament(Base):
             "max_score": self.max_score,
         }
 
+    @property
+    def draw(self) -> Draw | None:
+        ev = self.events[0] if self.events else None
+        if ev and ev.draw:
+            return ev.draw
+        return self.draws[0] if self.draws else None
 
-class Player(Base):
-    __tablename__ = "players"
-    __table_args__ = (UniqueConstraint("tournament_id", "seed", name="uq_tournament_seed"),)
+
+class Event(Base):
+    __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    category: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(20), default="singles")
+    format: Mapped[str] = mapped_column(String(40), default="single_elimination")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    best_of: Mapped[int] = mapped_column(Integer, default=3)
+    points_per_game: Mapped[int] = mapped_column(Integer, default=21)
+    third_game_points: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    deuce_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    win_by: Mapped[int] = mapped_column(Integer, default=2)
+    max_score: Mapped[Optional[int]] = mapped_column(Integer, default=30)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+
+    tournament: Mapped[Tournament] = relationship(back_populates="events")
+    players: Mapped[list[Player]] = relationship(back_populates="event", cascade="all, delete-orphan")
+    draw: Mapped[Optional[Draw]] = relationship(
+        back_populates="event", cascade="all, delete-orphan", uselist=False
+    )
+    matches: Mapped[list[Match]] = relationship(back_populates="event", cascade="all, delete-orphan")
+
+    def scoring_rules(self) -> dict[str, Any]:
+        return {
+            "best_of": self.best_of,
+            "points_per_game": self.points_per_game,
+            "third_game_points": self.third_game_points,
+            "deuce_enabled": self.deuce_enabled,
+            "win_by": self.win_by,
+            "max_score": self.max_score,
+        }
+
+
+class Person(Base):
+    """A real person in a tournament. May enter several events."""
+
+    __tablename__ = "people"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    club: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    ranking: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    player_code: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    contact: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    tournament: Mapped[Tournament] = relationship(back_populates="people")
+    entry_links: Mapped[list[EntryPerson]] = relationship(
+        back_populates="person", cascade="all, delete-orphan"
+    )
+
+
+class Player(Base):
+    """An event entry (singles player or doubles pair). The draw engine uses this id."""
+
+    __tablename__ = "players"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"))
+    event_id: Mapped[Optional[int]] = mapped_column(ForeignKey("events.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(200))
     club: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     ranking: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -100,13 +171,31 @@ class Player(Base):
     partner_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     tournament: Mapped[Tournament] = relationship(back_populates="players")
+    event: Mapped[Optional[Event]] = relationship(back_populates="players")
+    people_links: Mapped[list[EntryPerson]] = relationship(
+        back_populates="entry", cascade="all, delete-orphan"
+    )
+
+
+class EntryPerson(Base):
+    __tablename__ = "entry_people"
+    __table_args__ = (UniqueConstraint("entry_id", "person_id", name="uq_entry_person"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("players.id"))
+    person_id: Mapped[int] = mapped_column(ForeignKey("people.id"))
+    slot: Mapped[int] = mapped_column(Integer, default=1)
+
+    entry: Mapped[Player] = relationship(back_populates="people_links")
+    person: Mapped[Person] = relationship(back_populates="entry_links")
 
 
 class Draw(Base):
     __tablename__ = "draws"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"), unique=True)
+    tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"))
+    event_id: Mapped[Optional[int]] = mapped_column(ForeignKey("events.id"), nullable=True)
     bracket_size: Mapped[int] = mapped_column(Integer)
     byes: Mapped[int] = mapped_column(Integer, default=0)
     generated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -114,7 +203,8 @@ class Draw(Base):
     rng_seed: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     slots_json: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
 
-    tournament: Mapped[Tournament] = relationship(back_populates="draw")
+    tournament: Mapped[Tournament] = relationship(back_populates="draws")
+    event: Mapped[Optional[Event]] = relationship(back_populates="draw")
 
 
 class Court(Base):
@@ -133,6 +223,7 @@ class Match(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id"))
+    event_id: Mapped[Optional[int]] = mapped_column(ForeignKey("events.id"), nullable=True)
     draw_id: Mapped[Optional[int]] = mapped_column(ForeignKey("draws.id"), nullable=True)
     round_index: Mapped[int] = mapped_column(Integer, default=0)
     round_name: Mapped[str] = mapped_column(String(40), default="")
@@ -146,6 +237,8 @@ class Match(Base):
     player2_source: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     court_id: Mapped[Optional[int]] = mapped_column(ForeignKey("courts.id"), nullable=True)
     scheduled_time: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    expected_time: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    time_locked: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(20), default="not_started")
     scores: Mapped[Optional[Any]] = mapped_column(JSON, default=list)
     winner_id: Mapped[Optional[int]] = mapped_column(ForeignKey("players.id"), nullable=True)
@@ -157,6 +250,7 @@ class Match(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     tournament: Mapped[Tournament] = relationship(back_populates="matches")
+    event: Mapped[Optional[Event]] = relationship(back_populates="matches")
     player1: Mapped[Optional[Player]] = relationship(foreign_keys=[player1_id])
     player2: Mapped[Optional[Player]] = relationship(foreign_keys=[player2_id])
     winner: Mapped[Optional[Player]] = relationship(foreign_keys=[winner_id])

@@ -4,16 +4,37 @@ import db
 from app import create_app
 
 
+def _login(client):
+    res = client.post("/login", json={"username": "admin", "password": "dolphin"})
+    assert res.status_code == 200, res.json
+    assert res.json["ok"]
+
+
+def test_api_requires_admin_for_create(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + str(tmp_path / "auth.db"))
+    db.ENGINE = None
+    db.SessionLocal = None
+    app = create_app()
+    client = app.test_client()
+    denied = client.post("/api/tournaments", json={"name": "Nope"})
+    assert denied.status_code == 401
+    public = client.get("/api/tournaments")
+    assert public.status_code == 200
+    assert public.json["ok"]
+
+
 def test_api_eight_player_flow(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "sqlite:///" + str(tmp_path / "api.db"))
     db.ENGINE = None
     db.SessionLocal = None
     app = create_app()
     client = app.test_client()
+    _login(client)
 
     created = client.post("/api/tournaments", json={"name": "API Open", "sport": "badminton"})
     assert created.json["ok"]
     tid = created.json["tournament"]["id"]
+    assert created.json["tournament"]["events"]
 
     patched = client.patch(
         f"/api/tournaments/{tid}",
@@ -38,7 +59,6 @@ def test_api_eight_player_flow(tmp_path, monkeypatch):
             if p and p["seed"]:
                 seeds[p["seed"]] = m["match_number"]
     assert 1 in seeds and 2 in seeds
-    # seed 1 and 2 should not share a first-round match
     assert seeds[1] != seeds[2]
 
     assert client.post(f"/api/tournaments/{tid}/draw/lock", json={}).json["ok"]
@@ -50,6 +70,7 @@ def test_api_eight_player_flow(tmp_path, monkeypatch):
     assert len(assigned) == 2
     assert all(m["court"] and m["court"]["name"] for m in assigned)
     assert all(m["scheduled_time"] for m in ready)
+    assert all(m["time_label"] == "EXPECTED" for m in ready)
     assert len(started["waiting"]) == 2
 
     for _ in range(8):

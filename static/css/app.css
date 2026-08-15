@@ -43,6 +43,22 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
   z-index: 20;
 }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--pink); }
+.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.time-tag {
+  display: inline-block;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pink);
+  border: 1px solid var(--pink-dim);
+  background: var(--pink-dim);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-right: 4px;
+}
+.event-select { min-height: 38px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); padding: 0 10px; }
+.flash-error { color: var(--danger); }
+.warn-list { color: var(--danger); font-size: 0.9rem; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; color: var(--ink); }
 .brand-text strong { font-family: var(--display); font-size: 1.15rem; font-weight: 600; }
 .brand-text em { font-style: normal; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }

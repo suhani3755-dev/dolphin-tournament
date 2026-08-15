@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Admin login · Dolphin{% endblock %}
+{% block content %}
+  <nav class="crumb"><a href="{{ url_for('home') }}">Tournaments</a> / Login</nav>
+  <h1 class="page-title">Admin login</h1>
+  <p class="lede tight">Management pages (setup, entries, scoring) need an admin sign-in. The public draw, schedule, and results stay open.</p>
+  {% if error %}<p class="flash-error">{{ error }}</p>{% endif %}
+  <form method="post" class="form-stack" style="max-width:420px" autocomplete="on">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Username
+      <input name="username" required autofocus>
+    </label>
+    <label>Password
+      <input name="password" type="password" required>
+    </label>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Sign in</button>
+      <a class="btn btn-ghost" href="{{ url_for('home') }}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

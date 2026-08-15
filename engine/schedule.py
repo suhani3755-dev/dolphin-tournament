@@ -65,15 +65,25 @@ def is_playable(match: dict[str, Any]) -> bool:
     return bool(match.get("player1_id") and match.get("player2_id"))
 
 
+def occupant_ids(match: dict[str, Any]) -> list[int]:
+    """People in a match. Prefers person ids so doubles and multi-event rest work."""
+    people = match.get("person_ids") or []
+    if people:
+        return [int(pid) for pid in people if pid]
+    out: list[int] = []
+    for key in ("player1_id", "player2_id"):
+        pid = match.get(key)
+        if pid:
+            out.append(int(pid))
+    return out
+
+
 def _busy_players(matches: list[dict[str, Any]]) -> set[int]:
     busy: set[int] = set()
     for match in matches:
         if match.get("status") != "live":
             continue
-        for key in ("player1_id", "player2_id"):
-            pid = match.get(key)
-            if pid:
-                busy.add(int(pid))
+        busy.update(occupant_ids(match))
     return busy
 
 
@@ -123,16 +133,13 @@ def assign_available_courts(
     for match in queue:
         if not free:
             break
-        p1, p2 = match.get("player1_id"), match.get("player2_id")
-        if p1 in used_players or p2 in used_players:
+        people = occupant_ids(match)
+        if any(pid in used_players for pid in people):
             continue
         court = free.pop(0)
         match["court_id"] = court
         occupied[court] = match["id"]
-        if p1:
-            used_players.add(p1)
-        if p2:
-            used_players.add(p2)
+        used_players.update(people)
     return matches
 
 
@@ -156,6 +163,7 @@ def estimate_times(
     day_start = parse_hhmm(settings.get("day_start"), "09:00") or 9 * 60
     duration = max(5, int(settings.get("avg_match_minutes") or 25))
     changeover = max(0, int(settings.get("changeover_minutes") or 5))
+    min_rest = max(0, int(settings.get("min_rest_minutes") or 0))
     break_every = int(settings.get("break_every_waves") or 0)
     break_minutes = max(0, int(settings.get("break_minutes") or 15))
     slot = duration + changeover
@@ -172,14 +180,15 @@ def estimate_times(
             continue
 
         t0 = day_start
+        people = occupant_ids(match)
+        for pid in people:
+            t0 = max(t0, player_free.get(pid, day_start))
         for side in (1, 2):
-            pid = match.get(f"player{side}_id")
-            if pid:
-                t0 = max(t0, player_free.get(int(pid), day_start))
-            else:
-                feeder = winner_source_number(match.get(f"player{side}_source"))
-                if feeder and feeder in match_end:
-                    t0 = max(t0, match_end[feeder])
+            if match.get(f"player{side}_id"):
+                continue
+            feeder = winner_source_number(match.get(f"player{side}_source"))
+            if feeder and feeder in match_end:
+                t0 = max(t0, match_end[feeder])
 
         court_i = min(range(n), key=lambda i: max(court_free[i], t0))
         start = max(court_free[court_i], t0)
@@ -187,22 +196,22 @@ def estimate_times(
         start = max(start, court_free[court_i])
         start = _bump_lunch(start, settings)
 
-        keep_time = match.get("status") in DONE and match.get("scheduled_time")
+        keep_time = match.get("time_locked") or (match.get("status") in DONE and match.get("scheduled_time"))
         if keep_time:
             parsed = parse_hhmm(str(match["scheduled_time"]).split()[0], None)
             if parsed is not None:
                 start = parsed
         else:
             match["scheduled_time"] = format_hhmm(start)
+        match["expected_time"] = match.get("scheduled_time")
 
         end = start + slot
+        person_free_at = start + duration + min_rest
         court_free[court_i] = max(court_free[court_i], end)
         court_played[court_i] += 1
         match_end[int(match["match_number"])] = end
-        for key in ("player1_id", "player2_id"):
-            pid = match.get(key)
-            if pid:
-                player_free[int(pid)] = end
+        for pid in people:
+            player_free[pid] = max(player_free.get(pid, day_start), person_free_at)
 
         if break_every > 0 and break_minutes > 0:
             played = min(court_played)
