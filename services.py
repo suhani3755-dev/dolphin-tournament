@@ -524,17 +524,20 @@ def refresh_courts_and_schedule(
         _sync_courts(session, t, t.num_courts)
     courts = sorted(t.courts, key=lambda c: c.sort_order)
     views = [_match_engine_view(m) for m in t.matches]
+    court_ids = [c.id for c in courts]
+    court_by_id = {c.id: c for c in courts}
     should_assign = bool(getattr(t, "auto_assign_courts", True)) if assign is None else assign
     if should_assign and courts:
-        assign_available_courts(views, [c.id for c in courts])
+        assign_available_courts(views, court_ids)
         by_id = {row["id"]: row for row in views}
         for match in t.matches:
             if match.status in {"completed", "walkover", "retired", "cancelled"}:
                 continue
-            match.court_id = by_id[match.id].get("court_id")
-            session.expire(match, ["court"])
+            cid = by_id[match.id].get("court_id")
+            match.court_id = cid
+            match.court = court_by_id.get(cid) if cid else None
     if times:
-        estimate_times(views, len(courts) or t.num_courts or 1, schedule_settings(t))
+        estimate_times(views, len(court_ids) or t.num_courts or 1, schedule_settings(t), court_ids)
         by_id = {row["id"]: row for row in views}
         for match in t.matches:
             if match.result_type == "bye":

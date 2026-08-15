@@ -371,6 +371,60 @@ def test_estimate_times_waves_and_lunch():
     assert lunch_matches[3]["scheduled_time"] == "12:45"
 
 
+def test_completed_match_keeps_same_court_until_next_slot():
+    from engine.schedule import estimate_times
+
+    settings = {
+        "day_start": "09:00",
+        "avg_match_minutes": 25,
+        "changeover_minutes": 5,
+        "break_every_waves": 0,
+        "break_minutes": 0,
+        "lunch_start": "",
+        "lunch_minutes": 45,
+        "min_rest_minutes": 0,
+    }
+    matches = [
+        {
+            "id": 1,
+            "match_number": 1,
+            "round_index": 0,
+            "event_id": 1,
+            "status": "completed",
+            "court_id": 10,
+            "scheduled_time": "09:00",
+            "player1_id": 1,
+            "player2_id": 2,
+        },
+        {
+            "id": 2,
+            "match_number": 2,
+            "round_index": 0,
+            "event_id": 1,
+            "status": "ready",
+            "court_id": 11,
+            "scheduled_time": "09:00",
+            "player1_id": 3,
+            "player2_id": 4,
+        },
+        {
+            "id": 3,
+            "match_number": 3,
+            "round_index": 0,
+            "event_id": 1,
+            "status": "ready",
+            "court_id": 10,
+            "player1_id": 5,
+            "player2_id": 6,
+        },
+    ]
+    estimate_times(matches, 2, settings, court_ids=[10, 11])
+    by_id = {m["id"]: m for m in matches}
+    assert by_id[1]["scheduled_time"] == "09:00"
+    assert by_id[2]["scheduled_time"] == "09:00"
+    assert by_id[3]["scheduled_time"] == "09:30"
+
+
 def test_parse_hhmm_accepts_seconds():
     from engine.schedule import normalize_hhmm, parse_hhmm
 

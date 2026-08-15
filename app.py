@@ -262,7 +262,6 @@ def create_app() -> Flask:
         t = svc.load_tournament(session, tid)
         svc.update_tournament(session, t, request.get_json(force=True) or {})
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_arg())})
 
     @app.post("/api/tournaments/<int:tid>/events")
@@ -272,7 +271,6 @@ def create_app() -> Flask:
         t = svc.load_tournament(session, tid)
         event = svc.create_event(session, t, request.get_json(force=True) or {})
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, "event_id": event.id, **svc.full_payload(t, event.id)})
 
     @app.patch("/api/tournaments/<int:tid>/events/<int:eid>")
@@ -285,7 +283,6 @@ def create_app() -> Flask:
             return json_error("Event not found.", 404)
         svc.update_event(session, t, event, request.get_json(force=True) or {})
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, eid)})
 
     @app.delete("/api/tournaments/<int:tid>/events/<int:eid>")
@@ -298,7 +295,6 @@ def create_app() -> Flask:
             return json_error("Event not found.", 404)
         svc.delete_event(session, t, event)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t)})
 
     @app.post("/api/tournaments/<int:tid>/players")
@@ -318,7 +314,6 @@ def create_app() -> Flask:
         else:
             svc.add_player(session, t, body)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_id)})
 
     @app.patch("/api/tournaments/<int:tid>/players/<int:pid>")
@@ -331,7 +326,6 @@ def create_app() -> Flask:
             return json_error("Player not found.", 404)
         svc.update_player(session, t, player, request.get_json(force=True) or {})
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, player.event_id)})
 
     @app.delete("/api/tournaments/<int:tid>/players/<int:pid>")
@@ -345,7 +339,6 @@ def create_app() -> Flask:
         event_id = player.event_id
         svc.delete_player(session, t, player)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_id)})
 
     @app.post("/api/tournaments/<int:tid>/seed-by-ranking")
@@ -356,7 +349,6 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         svc.assign_seeds_by_ranking(session, t, body.get("event_id") or event_arg())
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, body.get("event_id") or event_arg())})
 
     @app.post("/api/tournaments/<int:tid>/draw")
@@ -368,7 +360,6 @@ def create_app() -> Flask:
         event_id = body.get("event_id") or event_arg()
         svc.generate_draw(session, t, confirm=bool(body.get("confirm")), event_id=event_id)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_id)})
 
     @app.post("/api/tournaments/<int:tid>/draw/lock")
@@ -380,7 +371,6 @@ def create_app() -> Flask:
         event_id = body.get("event_id") or event_arg()
         svc.lock_draw(session, t, event_id=event_id)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_id)})
 
     @app.post("/api/tournaments/<int:tid>/draw/unlock")
@@ -392,7 +382,6 @@ def create_app() -> Flask:
         event_id = body.get("event_id") or event_arg()
         svc.unlock_draw(session, t, confirm=bool(body.get("confirm")), event_id=event_id)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_id)})
 
     @app.post("/api/tournaments/<int:tid>/start")
@@ -404,7 +393,6 @@ def create_app() -> Flask:
         event_id = body.get("event_id") or event_arg()
         svc.start_tournament(session, t, event_id=event_id)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_id)})
 
     @app.post("/api/tournaments/<int:tid>/courts/auto")
@@ -414,7 +402,6 @@ def create_app() -> Flask:
         t = svc.load_tournament(session, tid)
         svc.refresh_courts_and_schedule(session, t, assign=True, times=True)
         session.flush()
-        t = svc.load_tournament(session, tid)
         return jsonify({"ok": True, **svc.full_payload(t, event_arg())})
 
     @app.post("/api/matches/<int:mid>/start")
@@ -427,7 +414,6 @@ def create_app() -> Flask:
         t = svc.load_tournament(session, match.tournament_id)
         svc.start_match(session, t, match)
         session.flush()
-        t = svc.load_tournament(session, t.id)
         return jsonify({"ok": True, **svc.full_payload(t, match.event_id)})
 
     @app.post("/api/matches/<int:mid>/result")
@@ -440,7 +426,6 @@ def create_app() -> Flask:
         t = svc.load_tournament(session, match.tournament_id)
         svc.enter_result(session, t, match, request.get_json(force=True) or {})
         session.flush()
-        t = svc.load_tournament(session, t.id)
         return jsonify({"ok": True, **svc.full_payload(t, match.event_id)})
 
     @app.patch("/api/matches/<int:mid>")
@@ -462,7 +447,6 @@ def create_app() -> Flask:
             time_locked=body.get("time_locked"),
         )
         session.flush()
-        t = svc.load_tournament(session, t.id)
         return jsonify({"ok": True, "warnings": warnings, **svc.full_payload(t, match.event_id)})
 
     return app

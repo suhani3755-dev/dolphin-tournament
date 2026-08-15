@@ -153,12 +153,26 @@ def _bump_lunch(t0: int, settings: dict[str, Any]) -> int:
     return t0
 
 
+def _has_fixed_time(match: dict[str, Any]) -> bool:
+    if not match.get("scheduled_time"):
+        return False
+    if match.get("time_locked"):
+        return True
+    return match.get("status") in DONE or match.get("status") == "live"
+
+
 def estimate_times(
     matches: list[dict[str, Any]],
     court_count: int,
     settings: dict[str, Any],
+    court_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fill scheduled_time on unfinished matches using a court-and-player timeline."""
+    """Fill scheduled_time on unfinished matches using a court-and-player timeline.
+
+    When court_ids are provided, a finished 09:00 match occupies that same court
+    until 09:00 + match length + changeover, so the next match there is 09:30,
+    not another 09:00.
+    """
     n = max(1, int(court_count or 1))
     day_start = parse_hhmm(settings.get("day_start"), "09:00") or 9 * 60
     duration = max(5, int(settings.get("avg_match_minutes") or 25))
@@ -168,12 +182,31 @@ def estimate_times(
     break_minutes = max(0, int(settings.get("break_minutes") or 15))
     slot = duration + changeover
 
-    court_free = [day_start] * n
-    court_played = [0] * n
+    ids: list[Any] = list(court_ids) if court_ids else list(range(n))
+    if not ids:
+        ids = list(range(n))
+    court_free = {cid: day_start for cid in ids}
+    court_played = {cid: 0 for cid in ids}
     player_free: dict[int, int] = {}
     match_end: dict[int, int] = {}
 
-    ordered = sorted(matches, key=lambda m: (int(m.get("round_index") or 0), int(m.get("match_number") or 0)))
+    def pick_court(t0: int, preferred: Any = None) -> Any:
+        if preferred is not None and preferred in court_free:
+            return preferred
+        return min(ids, key=lambda cid: max(court_free[cid], t0))
+
+    def schedule_key(match: dict[str, Any]) -> tuple:
+        fixed = 0 if _has_fixed_time(match) else 1
+        stamped = parse_hhmm(str(match.get("scheduled_time") or "").split()[0], None) if fixed == 0 else 10**9
+        return (
+            fixed,
+            stamped if stamped is not None else 0,
+            int(match.get("round_index") or 0),
+            int(match.get("event_id") or 0),
+            int(match.get("match_number") or 0),
+        )
+
+    ordered = sorted(matches, key=schedule_key)
     for match in ordered:
         if match.get("player1_is_bye") or match.get("player2_is_bye") or match.get("result_type") == "bye":
             match_end[int(match["match_number"])] = day_start
@@ -190,32 +223,33 @@ def estimate_times(
             if feeder and feeder in match_end:
                 t0 = max(t0, match_end[feeder])
 
-        court_i = min(range(n), key=lambda i: max(court_free[i], t0))
-        start = max(court_free[court_i], t0)
+        court_key = pick_court(t0, match.get("court_id"))
+        start = max(court_free[court_key], t0)
         start = _bump_lunch(start, settings)
-        start = max(start, court_free[court_i])
+        start = max(start, court_free[court_key])
         start = _bump_lunch(start, settings)
 
-        keep_time = match.get("time_locked") or (match.get("status") in DONE and match.get("scheduled_time"))
-        if keep_time:
+        if _has_fixed_time(match):
             parsed = parse_hhmm(str(match["scheduled_time"]).split()[0], None)
             if parsed is not None:
                 start = parsed
+                if match.get("court_id") in court_free:
+                    court_key = match["court_id"]
         else:
             match["scheduled_time"] = format_hhmm(start)
         match["expected_time"] = match.get("scheduled_time")
 
         end = start + slot
         person_free_at = start + duration + min_rest
-        court_free[court_i] = max(court_free[court_i], end)
-        court_played[court_i] += 1
+        court_free[court_key] = max(court_free[court_key], end)
+        court_played[court_key] += 1
         match_end[int(match["match_number"])] = end
         for pid in people:
             player_free[pid] = max(player_free.get(pid, day_start), person_free_at)
 
         if break_every > 0 and break_minutes > 0:
-            played = min(court_played)
-            if played > 0 and played % break_every == 0 and len(set(court_played)) == 1:
-                for i in range(n):
-                    court_free[i] = max(court_free[i], end) + break_minutes
+            played = min(court_played.values())
+            if played > 0 and played % break_every == 0 and len(set(court_played.values())) == 1:
+                for cid in ids:
+                    court_free[cid] = max(court_free[cid], end) + break_minutes
     return matches
