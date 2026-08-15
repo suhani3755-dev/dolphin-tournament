@@ -36,6 +36,14 @@ def test_api_eight_player_flow(tmp_path, monkeypatch):
     tid = created.json["tournament"]["id"]
     assert created.json["tournament"]["events"]
 
+    admin_page = client.get(f"/admin/tournaments/{tid}")
+    assert admin_page.status_code == 200
+    assert b"static/js/app.js" in admin_page.data
+    opened = client.get(f"/api/tournaments/{tid}")
+    assert opened.status_code == 200
+    assert opened.json["ok"]
+    assert opened.json["tournament"]["id"] == tid
+
     patched = client.patch(
         f"/api/tournaments/{tid}",
         json={"format": "single_elimination", "best_of": 3, "points_per_game": 21, "num_courts": 2},
