@@ -1,34 +1,44 @@
 :root {
-  --bg: #f6f3f1;
-  --bg-2: #efeae6;
-  --surface: #fffbfa;
-  --surface-2: #fbf7f8;
-  --topbar: #fbf7f8;
-  --ink: #1a1a1a;
-  --text: #3a3a3a;
-  --muted: #6f6a68;
-  --pink: #e11d74;
-  --pink-2: #c41864;
-  --pink-dim: rgba(225, 29, 116, 0.08);
-  --line: #e6e0dc;
-  --line-strong: #d4cdc8;
-  --connector: #9a948f;
-  --shadow: 0 1px 2px rgba(26, 26, 26, 0.05), 0 8px 20px rgba(26, 26, 26, 0.04);
-  --danger: #c43d52;
-  --ok: #1b8a5c;
+  color-scheme: dark;
+  --bg: #101820;
+  --bg-2: #17212b;
+  --surface: #1c2733;
+  --surface-2: #243140;
+  --topbar: #141c24;
+  --ink: #f2ece6;
+  --text: #d8d2cb;
+  --muted: #9a948e;
+  --pink: #f03d86;
+  --pink-2: #e11d74;
+  --pink-dim: rgba(240, 61, 134, 0.16);
+  --line: #2c3848;
+  --line-strong: #3d4c5e;
+  --connector: #6d7a8b;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.28), 0 14px 32px rgba(0, 0, 0, 0.28);
+  --danger: #f07178;
+  --ok: #3dba86;
   --font: "Outfit", sans-serif;
   --display: "Fraunces", serif;
   --radius: 10px;
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(1100px 520px at 8% -12%, rgba(240, 61, 134, 0.10), transparent 52%),
+    radial-gradient(900px 480px at 100% 0%, rgba(48, 118, 148, 0.16), transparent 46%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
 body { font-size: 16px; line-height: 1.45; }
 a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 h1, h2, h3 { font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
 
-.app-shell { min-height: 100vh; background: var(--bg); }
+.app-shell { min-height: 100vh; background: transparent; }
 .topbar {
   display: flex;
   align-items: center;
@@ -38,7 +48,7 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
-  background: rgba(251, 247, 248, 0.94);
+  background: rgba(20, 28, 36, 0.92);
   backdrop-filter: blur(12px);
   z-index: 20;
 }
@@ -158,7 +168,7 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-stack label, .field { display: grid; gap: 6px; font-size: 0.92rem; }
 input, select, textarea {
-  background: #fff;
+  background: var(--surface-2);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   padding: 10px 12px;
@@ -396,7 +406,7 @@ input.inline { min-height: 36px; width: 72px; padding: 6px 8px; }
 .wave-row.break { border-color: rgba(225, 29, 116, 0.32); color: var(--pink-2); }
 
 .modal-back {
-  position: fixed; inset: 0; background: rgba(17, 17, 17, 0.35);
+  position: fixed; inset: 0; background: rgba(8, 12, 18, 0.72);
   display: flex; align-items: flex-end; justify-content: center; z-index: 40;
 }
 .modal {
@@ -407,13 +417,13 @@ input.inline { min-height: 36px; width: 72px; padding: 6px 8px; }
   padding: 18px 18px 24px;
   max-height: 92vh;
   overflow: auto;
-  box-shadow: 0 -8px 32px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
 }
 .score-row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; margin: 10px 0; }
 .score-row input { text-align: center; font-size: 1.4rem; }
 .winner-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .stepper { display: flex; align-items: center; gap: 6px; }
-.stepper button { width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line-strong); background: #fff; }
+.stepper button { width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface-2); }
 
 .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
 .stat-row div, .summary-grid div {
@@ -431,7 +441,7 @@ input.inline { min-height: 36px; width: 72px; padding: 6px 8px; }
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
   background: var(--surface); border: 1px solid var(--pink); color: var(--text);
   padding: 10px 16px; border-radius: 999px; z-index: 50;
-  box-shadow: 0 8px 24px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 .player-hero h1 { font-family: var(--display); margin: 4px 0; color: var(--ink); }
 .search { width: 100%; margin-bottom: 10px; }
