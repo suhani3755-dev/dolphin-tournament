@@ -68,6 +68,7 @@
     } finally {
       setBusy(false);
     }
+  }
 
   async function load() {
     const q = eventId ? `?event_id=${eventId}` : "";
