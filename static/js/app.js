@@ -25,36 +25,49 @@
     toast._t = setTimeout(() => (el.hidden = true), 2800);
   }
 
+  let inflight = 0;
+
+  function setBusy(on) {
+    inflight = Math.max(0, inflight + (on ? 1 : -1));
+    document.body.classList.toggle("is-busy", inflight > 0);
+  }
+
   async function api(url, opts = {}) {
     const body = opts.body ? { ...opts.body } : null;
     if (body && eventId && body.event_id == null) body.event_id = eventId;
-    let res;
+    setBusy(true);
     try {
-      res = await fetch(url, {
-        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-        credentials: "same-origin",
-        ...opts,
-        body: body ? JSON.stringify(body) : opts.raw || undefined,
-      });
-    } catch (_err) {
-      throw new Error("Connection dropped. Try that again.");
+      let res;
+      try {
+        res = await fetch(url, {
+          headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+          credentials: "same-origin",
+          ...opts,
+          body: body ? JSON.stringify(body) : opts.raw || undefined,
+        });
+      } catch (_err) {
+        throw new Error("Connection dropped. Try that again.");
+      }
+      if (res.status === 401) {
+        location.href = `/login?next=/admin/tournaments/${tid}`;
+        throw new Error("Admin login required.");
+      }
+      const json = await res.json().catch(() => ({ ok: false, error: "Server hiccup. Try that again." }));
+      if (!json.ok) {
+        const err = new Error(json.error || "Request failed");
+        err.conflicts = json.conflicts || [];
+        err.status = res.status;
+        throw err;
+      }
+      state = json;
+      if (json.event && json.event.id) eventId = json.event.id;
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+      return json;
+    } finally {
+      setBusy(false);
     }
-    if (res.status === 401) {
-      location.href = `/login?next=/admin/tournaments/${tid}`;
-      throw new Error("Admin login required.");
-    }
-    const json = await res.json().catch(() => ({ ok: false, error: "Server hiccup. Try that again." }));
-    if (!json.ok) {
-      const err = new Error(json.error || "Request failed");
-      err.conflicts = json.conflicts || [];
-      err.status = res.status;
-      throw err;
-    }
-    state = json;
-    if (json.event && json.event.id) eventId = json.event.id;
-    render();
-    return json;
-  }
 
   async function load() {
     const q = eventId ? `?event_id=${eventId}` : "";

@@ -164,7 +164,12 @@ def match_person_ids(match: Match) -> list[int]:
     return ids
 
 
-def event_to_dict(event: Event) -> dict[str, Any]:
+def event_to_dict(event: Event, tournament: Tournament | None = None) -> dict[str, Any]:
+    t = tournament or event.tournament
+    if t is not None:
+        player_count = sum(1 for p in (t.players or []) if p.event_id == event.id)
+    else:
+        player_count = len(event.players or [])
     return {
         "id": event.id,
         "name": event.name,
@@ -174,7 +179,7 @@ def event_to_dict(event: Event) -> dict[str, Any]:
         "format_label": FORMATS.get(event.format, event.format),
         "sort_order": event.sort_order,
         "status": event.status,
-        "player_count": len(event.players or []),
+        "player_count": player_count,
         "locked": bool(event.draw and event.draw.locked),
         "generated": bool(event.draw),
         "scoring": event.scoring_rules(),
@@ -251,7 +256,8 @@ def tournament_to_dict(
         "venue": t.venue,
         "organizer": t.organizer,
         "description": t.description,
-        "logo_data": t.logo_data,
+        "logo_data": None,
+        "has_logo": bool(t.logo_data),
         "sport": t.sport,
         "format": (event.format if event else t.format),
         "format_label": FORMATS.get((event.format if event else t.format), t.format),
@@ -280,9 +286,8 @@ def tournament_to_dict(
         "player_count": len(players),
         "seed_count": sum(1 for p in players if p.seed),
         "scoring": event.scoring_rules() if event else t.scoring_rules(),
-        "events": [event_to_dict(e) for e in sorted(t.events or [], key=lambda e: (e.sort_order, e.id or 0))],
+        "events": [event_to_dict(e, t) for e in sorted(t.events or [], key=lambda e: (e.sort_order, e.id or 0))],
         "event_id": event.id if event else None,
-        "people": [_person_public(p) for p in sorted(t.people or [], key=lambda x: (x.name or "").lower())],
     }
     if include_nested:
         data["players"] = [_player_public(p) for p in sorted(players, key=_player_sort)]
@@ -312,18 +317,13 @@ def load_tournament(session: Session, tid: int) -> Tournament:
         .execution_options(populate_existing=True)
         .options(
             selectinload(Tournament.events).selectinload(Event.draw),
-            selectinload(Tournament.events).selectinload(Event.players),
-            selectinload(Tournament.people).selectinload(Person.entry_links),
+            selectinload(Tournament.people),
             selectinload(Tournament.players).selectinload(Player.people_links).selectinload(EntryPerson.person),
-            selectinload(Tournament.players).selectinload(Player.event),
             selectinload(Tournament.courts),
             selectinload(Tournament.draws),
-            selectinload(Tournament.matches).selectinload(Match.player1).selectinload(Player.people_links).selectinload(EntryPerson.person),
-            selectinload(Tournament.matches).selectinload(Match.player2).selectinload(Player.people_links).selectinload(EntryPerson.person),
-            selectinload(Tournament.matches).selectinload(Match.winner),
-            selectinload(Tournament.matches).selectinload(Match.loser),
+            selectinload(Tournament.matches).selectinload(Match.player1),
+            selectinload(Tournament.matches).selectinload(Match.player2),
             selectinload(Tournament.matches).selectinload(Match.court),
-            selectinload(Tournament.matches).selectinload(Match.event),
         )
         .where(Tournament.id == tid)
     ).scalar_one_or_none()
@@ -955,7 +955,10 @@ def match_to_dict(m: Match) -> dict[str, Any]:
     return {
         "id": m.id,
         "event_id": m.event_id,
-        "event_name": m.event.name if m.event else "",
+        "event_name": next(
+            (e.name for e in (m.tournament.events or []) if e.id == m.event_id),
+            "",
+        ) if m.tournament else "",
         "round_index": m.round_index,
         "round_name": m.round_name,
         "match_number": m.match_number,
@@ -1201,13 +1204,13 @@ def results_payload(t: Tournament, event: Event | None = None) -> dict[str, Any]
     if fmt == "single_elimination" and matches:
         final = max(matches, key=lambda m: (m.round_index, m.match_number))
         if final.winner_id:
-            champion = _player_public(final.winner)
-            runner = _player_public(final.loser)
+            champion = _player_public(final.player1 if final.winner_id == final.player1_id else final.player2)
+            runner = _player_public(final.player2 if final.winner_id == final.player1_id else final.player1)
         for m in matches:
             if m.round_name == "Semifinals" and m.loser_id:
-                semis.append(_player_public(m.loser))
+                semis.append(_player_public(m.player1 if m.loser_id == m.player1_id else m.player2))
             if m.round_name == "Quarterfinals" and m.loser_id:
-                quarters.append(_player_public(m.loser))
+                quarters.append(_player_public(m.player1 if m.loser_id == m.player1_id else m.player2))
         def uniq(items: list) -> list:
             seen = set()
             out = []
@@ -1369,8 +1372,11 @@ def person_page(t: Tournament, person: Person) -> dict[str, Any]:
 
 def full_payload(t: Tournament, event_id: Any = None) -> dict[str, Any]:
     event = resolve_event(t, event_id)
-    scoped = event_matches(t, event)
-    matches = [match_to_dict(m) for m in sorted(scoped, key=lambda m: m.match_number)]
+    converted = [
+        match_to_dict(m)
+        for m in sorted(t.matches, key=lambda x: (x.event_id or 0, x.match_number))
+    ]
+    matches = [m for m in converted if m["event_id"] == event.id]
     upcoming = [
         m
         for m in matches
@@ -1385,21 +1391,24 @@ def full_payload(t: Tournament, event_id: Any = None) -> dict[str, Any]:
     on_court = [m for m in upcoming if m.get("court_id")]
     live = [m for m in matches if m["status"] == "live"]
     all_playable = [
-        match_to_dict(m)
-        for m in sorted(t.matches, key=lambda x: (x.scheduled_time or "99", x.match_number))
-        if not m.player1_is_bye and not m.player2_is_bye and m.result_type != "bye"
+        m
+        for m in converted
+        if not m["player1_is_bye"] and not m["player2_is_bye"] and m["result_type"] != "bye"
     ]
+    all_playable.sort(key=lambda m: (m.get("scheduled_time") or "99", m["match_number"]))
+    results = results_payload(t, event)
+    results["matches"] = [m for m in matches if m.get("winner_id") and m.get("result_type") != "bye"]
     return {
         "tournament": tournament_to_dict(t, include_nested=True, event=event),
-        "event": event_to_dict(event),
+        "event": event_to_dict(event, t),
         "matches": matches,
         "upcoming": on_court[:12],
         "waiting": waiting[:12],
         "live": live,
-        "results": results_payload(t, event),
+        "results": results,
         "preview": draw_preview(t, event),
         "schedule": all_playable,
-        "conflicts": all_person_conflicts(t),
+        "conflicts": [],
     }
 
 
@@ -1538,14 +1547,15 @@ def person_schedule_conflicts(t: Tournament, match: Match) -> list[dict[str, Any
         if not _windows_conflict(window, other_window, min_rest):
             continue
         overlap = window[0] < other_window[1] and other_window[0] < window[1]
+        other_event = next((e.name for e in (t.events or []) if e.id == other.event_id), "another event")
         for pid in shared:
             who = names.get(pid) or f"Player {pid}"
             kind = "overlap" if overlap else "rest"
             message = (
-                f"{who} is already in {other.event.name if other.event else 'another event'} "
+                f"{who} is already in {other_event} "
                 f"Match {other.match_number} at {other.scheduled_time}."
                 if overlap
-                else f"{who} needs {min_rest} minutes rest after {other.event.name if other.event else 'another'} Match {other.match_number} ({other.scheduled_time})."
+                else f"{who} needs {min_rest} minutes rest after {other_event} Match {other.match_number} ({other.scheduled_time})."
             )
             found.append(
                 {
@@ -1554,7 +1564,7 @@ def person_schedule_conflicts(t: Tournament, match: Match) -> list[dict[str, Any
                     "kind": kind,
                     "other_match_id": other.id,
                     "other_match_number": other.match_number,
-                    "other_event": other.event.name if other.event else "",
+                    "other_event": other_event,
                     "other_time": other.scheduled_time,
                     "message": message,
                 }

@@ -445,6 +445,8 @@ input.inline { min-height: 36px; width: 72px; padding: 6px 8px; }
 }
 .player-hero h1 { font-family: var(--display); margin: 4px 0; color: var(--ink); }
 .search { width: 100%; margin-bottom: 10px; }
+body.is-busy { cursor: wait; }
+body.is-busy .app-shell { pointer-events: none; opacity: 0.78; }
 
 @media (max-width: 860px) {
   .layout, .form-grid, .format-grid, .tourney-row, .stat-row { grid-template-columns: 1fr; }

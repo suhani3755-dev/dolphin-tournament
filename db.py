@@ -57,7 +57,19 @@ def init_engine(url: str | None = None) -> Engine:
     else:
         # Neon (and Render) drop idle connections. Recycle and ping so a
         # sleeping compute does not turn the next click into a 500.
-        kwargs.update(pool_pre_ping=True, pool_recycle=280, pool_size=3, max_overflow=2)
+        kwargs.update(
+            pool_pre_ping=True,
+            pool_recycle=280,
+            pool_size=5,
+            max_overflow=5,
+            connect_args={
+                "connect_timeout": 8,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 3,
+            },
+        )
     ENGINE = create_engine(url, **kwargs)
 
     if url.startswith("sqlite"):
